@@ -203,7 +203,7 @@ function updateSheet() {
     return ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(order.status) !== -1;
   });
 
-  var openOrdersStartRow = 12; 
+  var openOrdersStartRow = 17; 
   var openOrdersStartColumn = 10; // Column J is the 10th column
 
   if (openOrders.length > 0) {
@@ -257,13 +257,13 @@ function updatefilledSheet() {
 
   // --- Step 1: Get all orders and log their statuses ---
   Logger.log("Calling listOrders() to retrieve ALL orders from Alpaca.");
-  var forders = listOrders(); 
-  Logger.log("Total orders retrieved from Alpaca: " + forders.length);
+  var orders = listOrders(); // Changed 'forders' back to 'orders' for consistency with filter/map
+  Logger.log("Total orders retrieved from Alpaca: " + orders.length);
 
-  if (forders.length > 0) {
+  if (orders.length > 0) {
     Logger.log("Logging status for each retrieved order before filtering:");
-    forders.forEach(function(forder) {
-      Logger.log("  Order ID: " + forder.id + ", Symbol: " + forder.symbol + ", Status: " + forder.status + ", Type: " + forder.type);
+    orders.forEach(function(order) { // Changed 'forder' to 'order'
+      Logger.log("  Order ID: " + order.id + ", Symbol: " + order.symbol + ", Status: " + order.status + ", Type: " + order.type);
     });
   } else {
     Logger.log("No orders retrieved at all from Alpaca API.");
@@ -271,10 +271,10 @@ function updatefilledSheet() {
 
   // --- Step 2: Filter for ONLY filled orders ---
   Logger.log("Filtering for orders with status 'filled'.");
-  var filledOrders = forders.filter(function(order) {
-    var isFilled = (forder.status === "filled");
+  var filledOrders = orders.filter(function(order) { // Changed 'forders' to 'orders'
+    var isFilled = (order.status === "filled"); // Changed 'forder' to 'order'
     if (isFilled) {
-      Logger.log("  MATCH: Order ID: " + forder.id + ", Status: " + forder.status);
+      Logger.log("  MATCH: Order ID: " + order.id + ", Status: " + order.status); // Changed 'forder' to 'order'
     }
     return isFilled;
   });
@@ -284,18 +284,18 @@ function updatefilledSheet() {
   // --- Step 3: Write filled orders data to sheet ---
   if (filledOrders.length > 0) {
     Logger.log("Preparing data for " + filledOrders.length + " filled orders.");
-    var filledOrderData = filledOrders.map(function(order) {
+    var filledOrderData = filledOrders.map(function(order) { // Changed 'forder' to 'order'
       return [
-        forder.id,
-        forder.symbol,
-        forder.qty,
-        forder.side,
-        forder.type,
-        forder.time_in_force,
-        forder.limit_price || "",
-        forder.stop_price || "",
-        forder.filled_at || "", 
-        forder.filled_avg_price || "" 
+        order.id,
+        order.symbol,
+        order.qty,
+        order.side,
+        order.type,
+        order.time_in_force,
+        order.limit_price || "",
+        order.stop_price || "",
+        order.filled_at || "", 
+        order.filled_avg_price || "" 
       ];
     });
     filledOrdersSheet.getRange(2, 1, filledOrderData.length, filledOrderData[0].length).setValues(filledOrderData);
