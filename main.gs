@@ -74,7 +74,24 @@ function listPositions() {
   return _request("v2/positions");
 }
 
-function submitOrder(symbol, qty, side, type, tif, limit, stop) {
+/**
+ * Submits an order to Alpaca.
+ * This function is enhanced to support OCO orders by accepting additional parameters.
+ *
+ * @param {string} symbol - The symbol of the asset.
+ * @param {number} qty - The quantity of the asset.
+ * @param {string} side - "buy" or "sell".
+ * @param {string} type - "market", "limit", "stop", "stop_limit", "trailing_stop".
+ * @param {string} tif - "day", "gtc", "opg", "cls", "ioc", "fok".
+ * @param {number} [limit_price] - Required for "limit" and "stop_limit" orders.
+ * @param {number} [stop_price] - Required for "stop" and "stop_limit" orders.
+ * @param {string} [order_class] - "simple", "bracket", "oco", "oto".
+ * @param {number} [take_profit_limit_price] - For "bracket" or "oco" orders (take_profit leg).
+ * @param {number} [stop_loss_stop_price] - For "bracket" or "oco" orders (stop_loss leg stop price).
+ * @param {number} [stop_loss_limit_price] - For "bracket" or "oco" orders (stop_loss leg limit price, makes it stop-limit).
+ * @returns {Object} The API response from the order submission.
+ */
+function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, order_class, take_profit_limit_price, stop_loss_stop_price, stop_loss_limit_price) {
   var payload = {
     symbol: symbol,
     side: side,
@@ -82,12 +99,37 @@ function submitOrder(symbol, qty, side, type, tif, limit, stop) {
     type: type,
     time_in_force: tif,
   };
-  if (limit) {
-    payload.limit_price = limit;
+
+  // Add limit_price and stop_price for simple orders if provided
+  if (limit_price) {
+    payload.limit_price = limit_price;
   }
-  if (stop) {
-    payload.stop_price = stop;
+  if (stop_price) {
+    payload.stop_price = stop_price;
   }
+
+  // Handle order_class specific parameters
+  if (order_class) {
+    payload.order_class = order_class;
+
+    if (order_class === "oco" || order_class === "bracket") {
+      if (take_profit_limit_price) {
+        payload.take_profit = {
+          limit_price: take_profit_limit_price
+        };
+      }
+      if (stop_loss_stop_price) {
+        payload.stop_loss = {
+          stop_price: stop_loss_stop_price
+        };
+        if (stop_loss_limit_price) {
+          payload.stop_loss.limit_price = stop_loss_limit_price;
+        }
+      }
+    }
+    // Add other order_class types if needed (e.g., OTO)
+  }
+
   return _request("/v2/orders", {
     method: "POST",
     payload: JSON.stringify(payload),
@@ -97,27 +139,78 @@ function submitOrder(symbol, qty, side, type, tif, limit, stop) {
 
 function orderFromSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet();
-  sheet.getRange("E2").setValue("submitting")
+  sheet.getRange("B1").setValue("submitting")
 
-  var side = sheet.getRange("J3").getValue()
-  var symbol = sheet.getRange("J4").getValue()
-  var qty = sheet.getRange("J5").getValue()
-  var type = sheet.getRange("J6").getValue()
-  var tif = sheet.getRange("J7").getValue()
-  var limit = sheet.getRange("J8").getValue()
-  var stop = sheet.getRange("J9").getValue()
+  var side = sheet.getRange("G3").getValue()
+  var symbol = sheet.getRange("G4").getValue()
+  var qty = sheet.getRange("G5").getValue()
+  var type = sheet.getRange("G6").getValue()
+  var tif = sheet.getRange("G7").getValue()
+  var limit = sheet.getRange("G8").getValue()
+  var stop = sheet.getRange("G9").getValue()
 
+  // Calling submitOrder for a simple order
   var resp = submitOrder(symbol, qty, side, type, tif, limit, stop);
-  sheet.getRange("E2").setValue(JSON.stringify(resp, null, 2))
+  sheet.getRange("B1").setValue(JSON.stringify(resp, null, 2))
 }
+
+/**
+ * Submits an OCO (One-Cancels-Other) order based on values from sheet P3:P10.
+ *
+ * P3: Side (buy/sell)
+ * P4: Symbol
+ * P5: Quantity
+ * P6: Primary Order Type (e.g., limit)
+ * P7: Time in Force (e.g., gtc)
+ * P8: Take Profit Limit Price
+ * P9: Stop Loss Stop Price
+ * P10: Stop Loss Limit Price (Optional, if provided, makes it a stop-limit)
+ */
+function OCOorderFromSheet() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+  sheet.getRange("B1").setValue("submitting OCO"); // Update status cell
+
+  var side = sheet.getRange("P3").getValue();
+  var symbol = sheet.getRange("P4").getValue();
+  var qty = sheet.getRange("P5").getValue();
+  var type = sheet.getRange("P6").getValue(); // e.g., "limit" for the primary order
+  var tif = sheet.getRange("P7").getValue();
+  var takeProfitLimit = sheet.getRange("P8").getValue();
+  var stopLossStop = sheet.getRange("P9").getValue();
+  var stopLossLimit = sheet.getRange("P10").getValue(); // Optional stop-limit price
+
+  // Validate required OCO parameters
+  if (!takeProfitLimit || !stopLossStop) {
+    sheet.getRange("B1").setValue("Error: Take Profit Limit (P8) and Stop Loss Stop (P9) are required for OCO orders.");
+    return;
+  }
+
+  // Call the enhanced submitOrder function with OCO specific parameters
+  var resp = submitOrder(
+    symbol,
+    qty,
+    side,
+    type, // Primary order type
+    tif,
+    null, // No simple limit_price for the primary order (it's handled by take_profit)
+    null, // No simple stop_price for the primary order (it's handled by stop_loss)
+    "oco", // Order Class
+    takeProfitLimit, // Take Profit Limit Price
+    stopLossStop,    // Stop Loss Stop Price
+    stopLossLimit    // Stop Loss Limit Price (optional)
+  );
+
+  sheet.getRange("b2").setValue(JSON.stringify(resp, null, 2));
+}
+
 
 function cancelOrderFromSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var orderIdToCancel = sheet.getRange("H10").getValue();
-  var statusCell = sheet.getRange("H11"); 
+  var orderIdToCancel = sheet.getRange("g10").getValue();
+  var statusCell = sheet.getRange("B1"); 
 
   if (!orderIdToCancel) {
-    statusCell.setValue("No Order ID provided in H10.");
+    statusCell.setValue("No Order ID provided in G10.");
     return;
   }
 
@@ -210,7 +303,7 @@ function updateSheet() {
     accountSheet.getRange("G" + (endIdx + 2)).setFormula("=median(G" + PositionRowStart + ":G" + endIdx + ")");
   }
 
-  // List Open Orders on the same sheet, starting at J12
+  // List Open Orders on the same sheet, starting at J17
   var orders = listOrders(); // This will now fetch ALL orders (last 30 days)
   var openOrders = orders.filter(function(order) {
     return ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(order.status) !== -1;
