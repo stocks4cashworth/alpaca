@@ -4,11 +4,11 @@ var PositionRowStart = 14;
 
 function _request(path, params) {
   var headers = {
-    "APCA-API-KEY-ID": "PKY5JN04MODLJ577J0XG",
-    "APCA-API-SECRET-KEY": "jhbCwzcDcMQ3XLDv3m1cdPInnZl4uwAfGmQf1oeW",
+    "APCA-API-KEY-ID": "",
+    "APCA-API-SECRET-KEY": "",
   };
 
-  var endpoint = "https://paper-api.alpaca.markets/";
+  var endpoint = "https://api.alpaca.markets/";
   var options = {
     "headers": headers,
   };
@@ -28,15 +28,22 @@ function _request(path, params) {
   }
 
   var response = UrlFetchApp.fetch(url, options);
-  var json = response.getContentText();
-  var data = JSON.parse(json);
-  return data;
+  var responseCode = response.getResponseCode();
+  var responseText = response.getContentText();
+
+  if (responseCode >= 400) {
+    Logger.log("API Request Error: " + responseCode + " - " + responseText);
+    return null; 
+  }
+
+  var data = JSON.parse(responseText); 
+  return data; 
 }
 
 function _cancelRequest(orderId) {
   var headers = {
-    "APCA-API-KEY-ID": "PKY5JN04MODLJ577J0XG",
-    "APCA-API-SECRET-KEY": "jhbCwzcDcMQ3XLDv3m1cdPInnZl4uwAfGmQf1oeW",
+    "APCA-API-KEY-ID": "",
+    "APCA-API-SECRET-KEY": "",
   };
 
   var endpoint = "https://paper-api.alpaca.markets/";
@@ -58,20 +65,22 @@ function _cancelRequest(orderId) {
 }
 
 function getAccount() {
-  return _request("v2/account");
+  var accountData = _request("v2/account");
+  return accountData || {}; // Return empty object if request fails
 }
 
 function listOrders() {
-  // Request all orders (status: "all") submitted after 30 days ago, with a limit of 500
   var thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   var thirtyDaysAgoISO = thirtyDaysAgo.toISOString();
 
-  return _request("v2/orders", { qs: { status: "all", limit: 500, after: thirtyDaysAgoISO } }); 
+  var ordersData = _request("v2/orders", { qs: { status: "all", limit: 500, after: thirtyDaysAgoISO } }); 
+  return ordersData || []; // Return an empty array if _request returns null/error
 }
 
 function listPositions() {
-  return _request("v2/positions");
+  var positionsData = _request("v2/positions");
+  return positionsData || []; // Return empty array if request fails
 }
 
 /**
@@ -130,11 +139,11 @@ function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, orde
     // Add other order_class types if needed (e.g., OTO)
   }
 
-  return _request("/v2/orders", {
+  var response = _request("/v2/orders", {
     method: "POST",
     payload: JSON.stringify(payload),
-    muteHttpExceptions: true,
   });
+  return response || {}; // Return empty object if request fails
 }
 
 function orderFromSheet() {
@@ -142,7 +151,7 @@ function orderFromSheet() {
   sheet.getRange("B1").setValue("submitting")
 
   var side = sheet.getRange("G3").getValue()
-  var symbol = sheet.getRange("G4").getValue()
+  var symbol = sheet.getRange("G4").getValue().toUpperCase(); // Changed to G4 and forced uppercase
   var qty = sheet.getRange("G5").getValue()
   var type = sheet.getRange("G6").getValue()
   var tif = sheet.getRange("G7").getValue()
@@ -158,7 +167,7 @@ function orderFromSheet() {
  * Submits an OCO (One-Cancels-Other) order based on values from sheet P3:P10.
  *
  * P3: Side (buy/sell)
- * P4: Symbol
+ * G4: Symbol (shared with simple order)
  * P5: Quantity
  * P6: Primary Order Type (e.g., limit)
  * P7: Time in Force (e.g., gtc)
@@ -168,10 +177,10 @@ function orderFromSheet() {
  */
 function OCOorderFromSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet();
-  sheet.getRange("B1").setValue("submitting OCO"); // Update status cell
+  sheet.getRange("E2").setValue("submitting OCO"); // Update status cell
 
   var side = sheet.getRange("P3").getValue();
-  var symbol = sheet.getRange("P4").getValue();
+  var symbol = sheet.getRange("G4").getValue().toUpperCase(); // Changed to G4 and forced uppercase
   var qty = sheet.getRange("P5").getValue();
   var type = sheet.getRange("P6").getValue(); // e.g., "limit" for the primary order
   var tif = sheet.getRange("P7").getValue();
@@ -181,7 +190,7 @@ function OCOorderFromSheet() {
 
   // Validate required OCO parameters
   if (!takeProfitLimit || !stopLossStop) {
-    sheet.getRange("B1").setValue("Error: Take Profit Limit (P8) and Stop Loss Stop (P9) are required for OCO orders.");
+    sheet.getRange("E2").setValue("Error: Take Profit Limit (P8) and Stop Loss Stop (P9) are required for OCO orders.");
     return;
   }
 
@@ -200,17 +209,17 @@ function OCOorderFromSheet() {
     stopLossLimit    // Stop Loss Limit Price (optional)
   );
 
-  sheet.getRange("b2").setValue(JSON.stringify(resp, null, 2));
+  sheet.getRange("E2").setValue(JSON.stringify(resp, null, 2));
 }
 
 
 function cancelOrderFromSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var orderIdToCancel = sheet.getRange("g10").getValue();
-  var statusCell = sheet.getRange("B1"); 
+  var orderIdToCancel = sheet.getRange("g11").getValue();
+  var statusCell = sheet.getRange("b1"); 
 
   if (!orderIdToCancel) {
-    statusCell.setValue("No Order ID provided in G10.");
+    statusCell.setValue("No Order ID provided in g11.");
     return;
   }
 
@@ -290,11 +299,12 @@ function updateSheet() {
     accountSheet.getRange("G" + PositionRowStart + ":G" + endIdx).setNumberFormat("$#,##0.00");
     accountSheet.getRange("H" + PositionRowStart + ":H" + endIdx).setNumberFormat("0.00%"); // Format column H as percentage
 
-    accountSheet.getRange("C" + (endIdx + 1)).setValue("total");
-    accountSheet.getRange("D" + (endIdx + 1)).setValue("total");
-    accountSheet.getRange("E" + (endIdx + 1)).setValue("total");
-    accountSheet.getRange("F" + (endIdx + 1)).setValue("average");
-    accountSheet.getRange("G" + (endIdx + 1)).setValue("median");
+    // Set "total", "average", "median" labels and make them bold
+    accountSheet.getRange("C" + (endIdx + 1)).setValue("total").setFontWeight("bold");
+    accountSheet.getRange("D" + (endIdx + 1)).setValue("total").setFontWeight("bold");
+    accountSheet.getRange("E" + (endIdx + 1)).setValue("total").setFontWeight("bold");
+    accountSheet.getRange("F" + (endIdx + 1)).setValue("average").setFontWeight("bold");
+    accountSheet.getRange("G" + (endIdx + 1)).setValue("median").setFontWeight("bold");
 
     accountSheet.getRange("C" + (endIdx + 2)).setFormula("=sum(C" + PositionRowStart + ":C" + endIdx + ")");
     accountSheet.getRange("D" + (endIdx + 2)).setFormula("=sum(D" + PositionRowStart + ":D" + endIdx + ")");
@@ -303,13 +313,13 @@ function updateSheet() {
     accountSheet.getRange("G" + (endIdx + 2)).setFormula("=median(G" + PositionRowStart + ":G" + endIdx + ")");
   }
 
-  // List Open Orders on the same sheet, starting at J17
+  // List Open Orders on the same sheet, starting at J10
   var orders = listOrders(); // This will now fetch ALL orders (last 30 days)
   var openOrders = orders.filter(function(order) {
     return ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(order.status) !== -1;
   });
 
-  var openOrdersStartRow = 12; 
+  var openOrdersStartRow = 12; // Changed from 17 to 10
   var openOrdersStartColumn = 10; // Column J is the 10th column
 
   if (openOrders.length > 0) {
