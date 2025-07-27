@@ -177,18 +177,19 @@ function orderFromSheet() {
  */
 function OCOorderFromSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet();
-  sheet.getRange("E2").setValue("submitting OCO"); // Update status cell
+  sheet.getRange("b1").setValue("submitting OCO"); // Update status cell
 
-  var side = sheet.getRange("P3").getValue();
-  var symbol = sheet.getRange("G4").getValue().toUpperCase(); // Changed to G4 and forced uppercase
-  var qty = sheet.getRange("P5").getValue();
-  var type = sheet.getRange("P6").getValue(); // e.g., "limit" for the primary order
-  var tif = sheet.getRange("P7").getValue();
-  var takeProfitLimit = sheet.getRange("P8").getValue();
-  var stopLossStop = sheet.getRange("P9").getValue();
-  var stopLossLimit = sheet.getRange("P10").getValue(); // Optional stop-limit price
+  var side = sheet.getRange("K3").getValue();
+  var symbol = sheet.getRange("K4").getValue().toUpperCase(); // Changed to G4 and forced uppercase
+  var qty = sheet.getRange("K5").getValue();
+  var type = sheet.getRange("K6").getValue(); // e.g., "limit" for the primary order
+  var tif = sheet.getRange("K7").getValue();
+  var takeProfitLimit = sheet.getRange("K8").getValue();
+  var stopLossStop = sheet.getRange("K9").getValue();
+  var stopLossLimit = sheet.getRange("K10").getValue(); // Optional stop-limit price
 
-  // Validate required OCO parameters
+ 
+// Validate required OCO parameters
   if (!takeProfitLimit || !stopLossStop) {
     sheet.getRange("E2").setValue("Error: Take Profit Limit (P8) and Stop Loss Stop (P9) are required for OCO orders.");
     return;
