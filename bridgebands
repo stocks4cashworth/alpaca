@@ -1,0 +1,76 @@
+/**
+ * Calculates Bridge Bands by reading data from the 'Data' sheet.
+ * Use this in your 'chart' sheet.
+ */
+function BRIDGEBANDS() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dataSheet = ss.getSheetByName("Data");
+  
+  // Get all data from the Data sheet (skipping the header row)
+  const rawData = dataSheet.getRange(2, 1, dataSheet.getLastRow(), 6).getValues();
+  
+  // Filter out any empty rows
+  const data = rawData.filter(r => r[0] !== "");
+  
+  if (data.length < 63) return "Loading data or insufficient history...";
+
+  const close = data.map(r => r[4]);
+  const high = data.map(r => r[2]);
+  const low = data.map(r => r[3]);
+  const lastIdx = close.length - 1;
+  const length = 15;
+  const trendLength = 63;
+
+  // --- CALCULATIONS ---
+
+  // 1. Bridge Range
+  const slope = (close[lastIdx] - close[lastIdx - (length-1)]) / (length - 1);
+  let min_diff = 1000000, max_diff = -1000000;
+  for (let i = 0; i < length; i++) {
+    let diff = close[lastIdx - i] - (close[lastIdx] + (slope * -i));
+    min_diff = Math.min(min_diff, diff);
+    max_diff = Math.max(max_diff, diff);
+  }
+  const br_bottom = close[lastIdx] + min_diff;
+  const br_top = close[lastIdx] + max_diff;
+
+  // 2. Hurst & ATR
+  let trSum = 0;
+  for(let i = lastIdx - length + 1; i <= lastIdx; i++) {
+    trSum += Math.max(high[i] - low[i], Math.abs(high[i] - close[i-1]), Math.abs(low[i] - close[i-1]));
+  }
+  const ATR = trSum / length;
+  const highestHigh = Math.max(...high.slice(-length));
+  const lowestLow = Math.min(...low.slice(-length));
+  const hurst = (Math.log(highestHigh - lowestLow) - Math.log(ATR)) / Math.log(length);
+
+  // 3. Bollinger Bands (WMA based)
+  const avg = close.slice(-length).reduce((a, b) => a + b) / length;
+  const sd = Math.sqrt(close.slice(-length).map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b) / (length - 1));
+  
+  let wSum = 0, wWeight = 0;
+  for (let i = 0; i < length; i++) {
+    wSum += close[lastIdx - i] * (length - i);
+    wWeight += (length - i);
+  }
+  const WMA = wSum / wWeight;
+  
+  const bb_bottom = WMA - (sd * 2);
+  const bb_top = WMA + (sd * 2);
+
+  // 4. Final Bridge Bands
+  const hFactor = Math.abs((hurst * 2) - 1);
+  const final_bottom = bb_bottom + ((br_bottom - bb_bottom) * hFactor);
+  const final_top = bb_top - ((bb_top - br_top) * hFactor);
+
+  // 5. Trend Signal
+  const trendLow = Math.min(...low.slice(-trendLength));
+  const trendHigh = Math.max(...high.slice(-trendLength));
+  const trendMid = trendLow + ((trendHigh - trendLow) / 2);
+  const outlook = close[lastIdx] > trendMid ? "BULLISH" : "BEARISH";
+
+  return [
+    ["Outlook", "Top Band", "Bottom Band"],
+    [outlook, final_top.toFixed(2), final_bottom.toFixed(2)]
+  ];
+}
