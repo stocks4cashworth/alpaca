@@ -1,0 +1,74 @@
+/**
+ * Processes 'Data' sheet to calculate Bridge Bands, Trend, and Position.
+ */
+function GENERATE_CHART_DATA() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dataSheet = ss.getSheetByName("Data");
+  
+  if (!dataSheet) return "Error: 'Data' sheet not found";
+
+  const rawData = dataSheet.getRange(2, 1, dataSheet.getLastRow(), 5).getValues();
+  const data = rawData.filter(r => r[0] !== "" && r[4] !== null);
+  
+  const length = 15;
+  const trendLength = 63;
+  // Added "BB Pos" to headers
+  const results = [["Date", "Low", "Open", "Close", "High", "Band Top", "Band Bottom", "Trend Line", "Outlook", "BB Pos"]];
+
+  for (let i = trendLength; i < data.length; i++) {
+    const window = data.slice(i - length + 1, i + 1);
+    const trendWindow = data.slice(i - trendLength + 1, i + 1);
+    
+    const closes = window.map(r => r[4]);
+    const highs = window.map(r => r[2]);
+    const lows = window.map(r => r[3]);
+    const currentClose = closes[length - 1];
+    
+    // 1. Bridge Range Logic
+    const slope = (currentClose - closes[0]) / (length - 1);
+    let min_diff = 1000000, max_diff = -1000000;
+    for (let j = 0; j < length; j++) {
+      let diff = closes[length - 1 - j] - (currentClose + (slope * -j));
+      min_diff = Math.min(min_diff, diff);
+      max_diff = Math.max(max_diff, diff);
+    }
+    
+    // 2. Hurst Factor
+    let trSum = 0;
+    for(let k = 1; k < length; k++) {
+      trSum += Math.max(highs[k] - lows[k], Math.abs(highs[k] - closes[k-1]), Math.abs(lows[k] - closes[k-1]));
+    }
+    const ATR = trSum / length;
+    const hExponent = (Math.log(Math.max(...highs) - Math.min(...lows)) - Math.log(ATR)) / Math.log(length);
+    const hFactor = Math.abs((hExponent * 2) - 1);
+
+    // 3. Bands Calculation
+    const avg = closes.reduce((a, b) => a + b) / length;
+    const sd = Math.sqrt(closes.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b) / (length - 1));
+    const final_top = (avg + (sd * 2)) - (((avg + (sd * 2)) - (currentClose + max_diff)) * hFactor);
+    const final_bottom = (avg - (sd * 2)) + (((currentClose + min_diff) - (avg - (sd * 2))) * hFactor);
+
+    // 4. Trend Line
+    const tHighs = trendWindow.map(r => r[2]);
+    const tLows = trendWindow.map(r => r[3]);
+    const trendLine = Math.min(...tLows) + ((Math.max(...tHighs) - Math.min(...tLows)) / 2);
+    
+    // 5. NEW: Bridge Band Position Calculation
+    // Formula: (Price - Bottom) / (Top - Bottom)
+    const bbPos = (currentClose - final_bottom) / (final_top - final_bottom);
+
+    results.push([
+      data[i][0],
+      data[i][3], // Low
+      data[i][1], // Open
+      data[i][4], // Close
+      data[i][2], // High
+      final_top,
+      final_bottom,
+      trendLine,
+      currentClose > trendLine ? "BULLISH" : "BEARISH",
+      bbPos.toFixed(3) // Position value
+    ]);
+  }
+  return results;
+}
