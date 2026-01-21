@@ -1,138 +1,118 @@
-
+// FilledOrders.gs
 /**
- * Copies the "Filled Orders" tab to a new sheet,
- * transforms the data by adjusting quantity for sell orders,
- * calculates position net cost,
- * orders the data by symbol, and then groups it by symbol
- * showing the total adjusted quantity and total position net cost.
+ * Fetches filled orders from Alpaca, filters for new ones, and writes them
+ * to the "Filled Orders" sheet with all available data points.
  */
-function processFilledOrdersSnapshot() {
+function updatefilledSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var filledOrdersSheet = ss.getSheetByName("Filled Orders");
 
+  Logger.log("--- Starting updatefilledSheet (for Filled Orders) ---");
+
+  // Create sheet if it doesn't exist
   if (!filledOrdersSheet) {
-    Logger.log("Error: 'Filled Orders' sheet not found. Please run updatefilledSheet() first.");
-    SpreadsheetApp.getUi().alert("Error", "'Filled Orders' sheet not found. Please run updatefilledSheet() first.", SpreadsheetApp.getUi().ButtonSet.OK);
-    return;
+    Logger.log("Creating new 'Filled Orders' sheet.");
+    filledOrdersSheet = ss.insertSheet("Filled Orders");
+  } else {
+    Logger.log("Found 'Filled Orders' sheet. Clearing existing data (A2:Z).");
+    filledOrdersSheet.getRange("A2:Z").clearContent(); // Clear all data below header
   }
 
-  // Create a new sheet with a timestamped name
-  var timestamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyyMMdd_HHmmss");
-  var newSheetName = "Filled_Summary_" + timestamp;
-  var summarySheet = ss.insertSheet(newSheetName);
-  Logger.log("Created new summary sheet: " + newSheetName);
+  // Define comprehensive headers for filled orders
+  var headers = [
+    "ID", "Symbol", "Quantity", "Side", "Type", "Time in Force", "Limit Price", "Stop Price",
+    "Status", "Submitted At", "Created At", "Updated At", "Expired At", "Filled At",
+    "Client Order ID", "Extended Hours", "Asset ID", "Asset Class", "Filled Quantity",
+    "Filled Avg Price", "Order Class", "Trail Price", "Trail Percent", "HWM", "Commission",
+    "Legs" 
+  ];
+  filledOrdersSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+  filledOrdersSheet.autoResizeColumns(1, headers.length); // Auto-resize headers
+  Logger.log("Headers written to 'Filled Orders' sheet.");
 
-  // Get all data from "Filled Orders" sheet (including headers)
-  var allFilledData = filledOrdersSheet.getDataRange().getValues();
+  // --- Retrieve existing filled order IDs from the sheet to prevent duplicates ---
+  // This logic is commented out for now to ensure all filled orders from API are written,
+  // as the sheet is cleared initially. If you want true appending without clearing,
+  // uncomment this and adjust the clearContent() above.
+  /*
+  var existingOrderIds = new Set();
+  if (filledOrdersSheet.getLastRow() > 1) { 
+    var existingDataRange = filledOrdersSheet.getRange("A2:A" + filledOrdersSheet.getLastRow());
+    existingDataRange.getValues().forEach(function(row) {
+      if (row[0]) { 
+        existingOrderIds.add(row[0]);
+      }
+    });
+  }
+  Logger.log("Number of existing filled order IDs on sheet: " + existingOrderIds.size);
+  */
 
-  if (allFilledData.length <= 1) { // Only headers or no data
-    Logger.log("No filled order data to process beyond headers.");
-    summarySheet.appendRow(["No filled orders to summarize."]);
-    return;
+  // --- Step 1: Get all orders (limited to last 30 days by listOrders) ---
+  Logger.log("Calling listOrders() to retrieve ALL orders from Alpaca (last 30 days).");
+  // listOrders() is defined in Main.gs and is globally accessible
+  var orders = listOrders(); 
+  Logger.log("Total orders retrieved from Alpaca (last 30 days): " + orders.length);
+
+  if (orders.length > 0) {
+    Logger.log("Logging status for each retrieved order before filtering:");
+    orders.forEach(function(order) {
+      Logger.log("  Order ID: " + order.id + ", Symbol: " + order.symbol + ", Status: " + order.status + ", Type: " + order.type);
+    });
+  } else {
+    Logger.log("No orders retrieved at all from Alpaca API for the last 30 days.");
   }
 
-  // Extract headers and data rows
-  var headers = allFilledData[0];
-  var dataRows = allFilledData.slice(1); // All rows except the header
-
-  // Find column indices dynamically
-  // These indices must match the headers defined in updatefilledSheet
-  var idCol = headers.indexOf("ID");
-  var symbolCol = headers.indexOf("Symbol");
-  var quantityCol = headers.indexOf("Quantity");
-  var sideCol = headers.indexOf("Side");
-  var filledAvgPriceCol = headers.indexOf("Filled Avg Price"); 
-
-  if (idCol === -1 || symbolCol === -1 || quantityCol === -1 || sideCol === -1 || filledAvgPriceCol === -1) {
-    Logger.log("Error: Required columns (ID, Symbol, Quantity, Side, Filled Avg Price) not found in 'Filled Orders' sheet or headers changed.");
-    SpreadsheetApp.getUi().alert("Error", "Required columns (ID, Symbol, Quantity, Side, Filled Avg Price) not found in 'Filled Orders' sheet. Ensure headers are correct.", SpreadsheetApp.getUi().ButtonSet.OK);
-    return;
-  }
-
-  // --- Step 1: Add Adjusted Quantity and Position Net Cost columns ---
-  var processedData = [];
-  dataRows.forEach(function(row) {
-    var orderId = row[idCol]; // Keep ID for logging
-    var symbol = row[symbolCol];
-    var quantity = parseFloat(row[quantityCol]); 
-    var side = row[sideCol];
-    var filledAvgPrice = parseFloat(row[filledAvgPriceCol]); 
-
-    // Handle potential non-numeric values gracefully
-    if (isNaN(quantity)) {
-      Logger.log("Warning: Quantity is not a number for order ID: " + orderId + ", Symbol: " + symbol);
-      quantity = 0;
+  // --- Step 2: Filter for ONLY filled orders ---
+  Logger.log("Filtering for orders with status 'filled'.");
+  var filledOrders = orders.filter(function(order) {
+    var isFilled = (order.status === "filled");
+    // If using incremental update, also check isNew: var isNew = !existingOrderIds.has(order.id);
+    if (isFilled) { // && isNew
+      Logger.log("  MATCH: Order ID: " + order.id + ", Status: " + order.status);
     }
-    if (isNaN(filledAvgPrice)) {
-      Logger.log("Warning: Filled Avg Price is not a number for order ID: " + orderId + ", Symbol: " + symbol);
-      filledAvgPrice = 0;
-    }
-
-    var adjustedQuantity = quantity;
-    if (side && typeof side === 'string' && side.toLowerCase() === 'sell') {
-      adjustedQuantity = -quantity;
-    }
-
-    // Step 1b: Calculate Position Net Cost
-    var positionNetCost = adjustedQuantity * filledAvgPrice;
-    
-    // Create a new row with original data + adjusted quantity + position net cost
-    var newRow = row.slice(); // Create a copy of the original row
-    newRow.push(adjustedQuantity); // Add adjusted quantity as a new column
-    newRow.push(positionNetCost); // Add position net cost as another new column
-    processedData.push(newRow);
+    return isFilled; // && isNew;
   });
 
-  // Add new headers for the processed data
-  var newHeaders = headers.slice();
-  newHeaders.push("Adjusted Quantity");
-  newHeaders.push("Position Net Cost"); 
+  Logger.log("Number of 'filled' orders found: " + filledOrders.length);
 
-  // --- Step 2: Order the data by Symbol ---
-  processedData.sort(function(a, b) {
-    var symbolA = (a[symbolCol] || "").toString().toUpperCase(); 
-    var symbolB = (b[symbolCol] || "").toString().toUpperCase();
-    if (symbolA < symbolB) return -1;
-    if (symbolA > symbolB) return 1;
-    return 0;
-  });
-  Logger.log("Data sorted by Symbol.");
-
-  // --- Step 3: Group the data by Symbol and sum Adjusted Quantity and Position Net Cost ---
-  var groupedData = {}; // Object to store sums by symbol
-
-  // The adjusted quantity is now the second to last element, and net cost is the last
-  var adjustedQuantityIndex = newHeaders.length - 2; 
-  var positionNetCostIndex = newHeaders.length - 1;
-
-  processedData.forEach(function(row) {
-    var symbol = row[symbolCol];
-    var adjQty = row[adjustedQuantityIndex];
-    var netCost = row[positionNetCostIndex];
-
-    if (!groupedData[symbol]) {
-      groupedData[symbol] = { totalAdjQty: 0, totalNetCost: 0 };
-    }
-    groupedData[symbol].totalAdjQty += adjQty;
-    groupedData[symbol].totalNetCost += netCost;
-  });
-  Logger.log("Data grouped by Symbol.");
-
-  // Prepare data for the summary sheet
-  var summaryData = [];
-  summaryData.push(["Symbol", "Total Adjusted Quantity", "Total Position Net Cost"]); // Updated Summary headers
-
-  for (var symbol in groupedData) {
-    summaryData.push([symbol, groupedData[symbol].totalAdjQty, groupedData[symbol].totalNetCost]);
+  // --- Step 3: Write filled orders data to sheet ---
+  if (filledOrders.length > 0) {
+    Logger.log("Preparing data for " + filledOrders.length + " filled orders.");
+    var filledOrderData = filledOrders.map(function(order) {
+      return [
+        order.id || "",
+        order.symbol || "",
+        order.qty || "",
+        order.side || "",
+        order.type || "",
+        order.time_in_force || "",
+        order.limit_price || "",
+        order.stop_price || "",
+        order.status || "",
+        order.submitted_at || "",
+        order.created_at || "",
+        order.updated_at || "",
+        order.expired_at || "",
+        order.filled_at || "",
+        order.client_order_id || "",
+        order.extended_hours || "",
+        order.asset_id || "",
+        order.asset_class || "",
+        order.filled_qty || "",
+        order.filled_avg_price || "",
+        order.order_class || "",
+        order.trail_price || "",
+        order.trail_percent || "",
+        order.hwm || "",
+        order.commission || "",
+        (order.legs && order.legs.length > 0) ? JSON.stringify(order.legs) : "" 
+      ];
+    });
+    filledOrdersSheet.getRange(2, 1, filledOrderData.length, filledOrderData[0].length).setValues(filledOrderData);
+    filledOrdersSheet.autoResizeColumns(1, filledOrderData[0].length);
+    Logger.log("Successfully wrote filled order data to 'Filled Orders' sheet.");
+  } else {
+    Logger.log("No 'filled' orders to write to 'Filled Orders' sheet.");
   }
-
-  // Write summary data to the new sheet
-  summarySheet.getRange(1, 1, summaryData.length, summaryData[0].length).setValues(summaryData);
-  summarySheet.autoResizeColumns(1, summaryData[0].length);
-  // Format the quantity and cost columns
-  if (summaryData.length > 1) { // Apply format only if there's data beyond headers
-    summarySheet.getRange(2, 2, summaryData.length -1, 1).setNumberFormat("#,###"); // Total Adjusted Quantity
-    summarySheet.getRange(2, 3, summaryData.length -1, 1).setNumberFormat("$#,##0.00"); // Total Position Net Cost
-  }
-  Logger.log("Summary data written to " + newSheetName);
+  Logger.log("--- Finished updatefilledSheet ---");
 }
