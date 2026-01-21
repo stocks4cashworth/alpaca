@@ -4,8 +4,8 @@
 // --- GLOBAL CONFIGURATION ---
 // IMPORTANT: Replace with your actual Alpaca API Key ID and Secret Key
 // For paper trading, use "https://paper-api.alpaca.markets/"
-//var ALPAC_API_KEY_ID = "PKY5JN04MODLJ577J0XG"; // <<< Fill in your Alpaca API Key ID
-//var ALPAC_API_SECRET_KEY = "jhbCwzcDcMQ3XLDv3m1cdPInnZl4uwAfGmQf1oeW"; // <<< Fill in your Alpaca API Secret Key
+//var ALPAC_API_KEY_ID = ""; // <<< Fill in your Alpaca API Key ID
+//var ALPAC_API_SECRET_KEY = ""; // <<< Fill in your Alpaca API Secret Key
 //var ALPAC_API_ENDPOINT = "https://paper-api.alpaca.markets/"; // Using paper API endpoint
 // For live trading, use "https://api.alpaca.markets/"
 var ALPAC_API_KEY_ID = "AKXW7VOZVAWVCJ7WGD51"; 
