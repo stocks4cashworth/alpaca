@@ -1,34 +1,31 @@
-// --- GLOBAL CONFIGURATION ---
-// These will still run every time a script is triggered
-var scriptProperties = PropertiesService.getScriptProperties();
-var ALPAC_API_KEY_ID = scriptProperties.getProperty('ALPACA_KEY'); 
-var ALPAC_API_SECRET_KEY = scriptProperties.getProperty('ALPACA_SECRET'); 
-var ALPAC_API_ENDPOINT = scriptProperties.getProperty('ALPACA_ENDPOINT'); 
+// --- PRIVATE CREDENTIALS ---
+// Keep this file local; do not sync this file to your public repository.
+
+var ALPAC_API_KEY_ID = "YOUR_LIVE_KEY_HERE"; 
+var ALPAC_API_SECRET_KEY = "YOUR_LIVE_SECRET_HERE"; 
+var ALPAC_API_ENDPOINT = "https://api.alpaca.markets/"; // Use 'https://paper-api.alpaca.markets/' for paper
 
 /**
- * Simple trigger that runs when the spreadsheet is opened.
+ * Simple trigger to create the menu on open.
+ * We removed the safety checks since the keys are now hardcoded here.
  */
 function onOpen() {
-  // 1. Run the Safety Check immediately
-  checkCredentials();
-
-  // 2. Create the Menu
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('🚀 Alpaca Tools')
-      .addItem('🔐 Set/Update API Credentials', 'uiSetApiKeys')
-      .addSeparator()
       .addItem('📊 Update Portfolio Now', 'updateSheet')
+      .addSeparator()
+      .addItem('🧪 Switch to Paper Trading', 'usePaperTrading')
+      .addItem('💰 Switch to Live Trading', 'useLiveTrading')
       .addToUi();
 }
 
-/**
- * Validation Logic
- */
-function checkCredentials() {
-  if (!ALPAC_API_KEY_ID || !ALPAC_API_SECRET_KEY || !ALPAC_API_ENDPOINT) {
-    // We use an alert instead of 'throw' here so it pops up nicely for the user
-    SpreadsheetApp.getUi().alert("⚠️ Missing API Credentials. Please go to 'Alpaca Tools' > 'Set API Credentials' to begin.");
-    return false;
-  }
-  return true;
+// These functions now update the variable directly for the current session
+function usePaperTrading() {
+  ALPAC_API_ENDPOINT = "https://paper-api.alpaca.markets/";
+  SpreadsheetApp.getUi().alert("Endpoint set to PAPER. Note: Hardcoded variables reset on refresh.");
+}
+
+function useLiveTrading() {
+  ALPAC_API_ENDPOINT = "https://api.alpaca.markets/";
+  SpreadsheetApp.getUi().alert("Endpoint set to LIVE.");
 }
