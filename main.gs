@@ -2,18 +2,15 @@
 // Main.gs
 
 // --- GLOBAL CONFIGURATION ---
-// IMPORTANT: Replace with your actual Alpaca API Key ID and Secret Key
-// For paper trading, use "https://paper-api.alpaca.markets/"
-//var ALPAC_API_KEY_ID = ""; // <<< Fill in your Alpaca API Key ID
-//var ALPAC_API_SECRET_KEY = ""; // <<< Fill in your Alpaca API Secret Key
-//var ALPAC_API_ENDPOINT = "https://paper-api.alpaca.markets/"; // Using paper API endpoint
-// For live trading, use "https://api.alpaca.markets/"
-var ALPAC_API_KEY_ID = "AKXW7VOZVAWVCJ7WGD51"; 
-var ALPAC_API_SECRET_KEY = "GQaWBBtDWmRTLLnNFxe4G6Wr62d2I7iYVwcKatM8"; 
-var ALPAC_API_ENDPOINT = "https://api.alpaca.markets/"; 
+var scriptProperties = PropertiesService.getScriptProperties();
 
+// Fetching all 3 values from secure storage
+var ALPAC_API_KEY_ID = scriptProperties.getProperty('ALPACA_KEY'); 
+var ALPAC_API_SECRET_KEY = scriptProperties.getProperty('ALPACA_SECRET'); 
+var ALPAC_API_ENDPOINT = scriptProperties.getProperty('ALPACA_ENDPOINT'); 
 
-var PositionRowStart = 14; 
+var PositionRowStart = 14;
+
 
 /**
  * Makes a request to the Alpaca API.
