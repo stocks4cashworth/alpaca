@@ -11,7 +11,6 @@ var ALPAC_API_ENDPOINT = scriptProperties.getProperty('ALPACA_ENDPOINT');
 
 var PositionRowStart = 14;
 
-
 /**
  * Makes a request to the Alpaca API.
  * Uses globally defined API keys and endpoint.
@@ -184,30 +183,30 @@ function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, orde
   return response || {}; 
 }
 
-/**
- * Submits a simple order based on values from sheet G3:G9.
- * Reads symbol from G4 and forces it to uppercase.
- */
 function orderFromSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet();
-  sheet.getRange("B1").setValue("submitting"); // Status cell for order submission
+  sheet.getRange("B1").setValue("submitting");
 
-  var side = sheet.getRange("G3").getValue();
-  var symbol = sheet.getRange("G4").getValue()//.toUpperCase(); // Read from G4 and force uppercase
-  var qty = sheet.getRange("G5").getValue();
-  var type = sheet.getRange("G6").getValue();
-  var tif = sheet.getRange("G7").getValue();
+  // Read and clean values
+  var side = sheet.getRange("G3").getValue().toString().toLowerCase().trim();
+  var symbol = sheet.getRange("G4").getValue().toString().toUpperCase().trim();
+  var qty = parseFloat(sheet.getRange("G5").getValue());
+  var type = sheet.getRange("G6").getValue().toString().toLowerCase().trim();
+  var tif = sheet.getRange("G7").getValue().toString().toLowerCase().trim();
   var limit = sheet.getRange("G8").getValue();
   var stop = sheet.getRange("G9").getValue();
 
-  // Basic validation for symbol
-  if (!symbol) {
-    sheet.getRange("B1").setValue("Error: Symbol (G4) cannot be empty.");
+  // Basic validation
+  if (!symbol || isNaN(qty)) {
+    sheet.getRange("B1").setValue("Error: Check Symbol (G4) and Quantity (G5).");
     return;
   }
 
-  // Calling submitOrder for a simple order
-  var resp = submitOrder(symbol, qty, side, type, tif, limit, stop);
+  // Ensure limit and stop are numbers or null
+  var limitPrice = limit ? parseFloat(limit) : null;
+  var stopPrice = stop ? parseFloat(stop) : null;
+
+  var resp = submitOrder(symbol, qty, side, type, tif, limitPrice, stopPrice);
   sheet.getRange("B1").setValue(JSON.stringify(resp, null, 2));
 }
 
@@ -318,115 +317,87 @@ function clearPositions() {
   }
 }
 
+
+
+
+
+
 /**
- * Updates the "Main" sheet with account information, positions,
- * and open orders.
+ * Updates the "Main" sheet with a unified view of Positions and Orders.
+ * Extracts Stop Loss from OCO/Bracket order legs.
  */
 function updateSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var accountSheet = ss.getSheetByName("Main");
+  var sheet = ss.getSheetByName("Main");
   
-  // Update Account Information
+  var headers = [
+    "Ticker", "Owned Qty", "Cost Basis", "Unrealized Gain", "Profit %", 
+    "Cost Basis/Share", "Current Price", "% of Portfolio", 
+    "Buy Qty", "Buy Limit", 
+    "Sell Qty", "Sell Limit", "Stop", "Order ID"
+  ];
+  
+  sheet.getRange(13, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#f3f3f3");
+
   var accountInfo = getAccount();
-  accountSheet.getRange("B5").setValue(accountInfo.id || "");
-  accountSheet.getRange("B6").setValue(accountInfo.buying_power || "");
-  accountSheet.getRange("B7").setValue(accountInfo.cash || "");
-  accountSheet.getRange("B8").setValue(accountInfo.portfolio_value || ""); // Portfolio Value
-  accountSheet.getRange("B9").setValue(accountInfo.status || "");
-  accountSheet.getRange("B6:B8").setNumberFormat("$#,##0.00");
-
-  var portfolioValueCell = "B8"; // Cell containing portfolio value
-
-  // Clear and Update Positions
-  clearPositions(); 
   var positions = listPositions();
-  if (positions.length > 0) {
-    positions.sort(function(a, b) { return a.symbol < b.symbol ? -1 : 1 });
-    for (var i = 0; i < positions.length; i++) {
-      var rowIdx = PositionRowStart + i;
-      accountSheet.getRange("A" + rowIdx).setValue(positions[i].symbol || "");
-      accountSheet.getRange("B" + rowIdx).setValue(positions[i].qty || "");
-      accountSheet.getRange("C" + rowIdx).setValue(positions[i].market_value || "");
-      accountSheet.getRange("D" + rowIdx).setValue(positions[i].cost_basis || "");
-      accountSheet.getRange("E" + rowIdx).setValue(positions[i].unrealized_pl || "");
-      accountSheet.getRange("F" + rowIdx).setValue(positions[i].unrealized_plpc || "");
-      accountSheet.getRange("G" + rowIdx).setValue(positions[i].current_price || "");
-      
-      // Calculate and set 'Percent of Portfolio' in Column H
-      // Use IFERROR to prevent #DIV/0! if portfolio value is 0 or empty
-      accountSheet.getRange("H" + rowIdx).setFormula("=IFERROR(C" + rowIdx + "/" + portfolioValueCell + ", \"\")"); 
-    }
-    var endIdx = PositionRowStart + positions.length - 1;
-    accountSheet.getRange("B" + PositionRowStart + ":B" + endIdx).setNumberFormat("#,###");
-    accountSheet.getRange("C" + PositionRowStart + ":C" + endIdx).setNumberFormat("$#,##0.00");
-    accountSheet.getRange("D" + PositionRowStart + ":D" + endIdx).setNumberFormat("$#,##0.00");
-    accountSheet.getRange("E" + PositionRowStart + ":E" + endIdx).setNumberFormat("$#,##0.00");
-    accountSheet.getRange("F" + PositionRowStart + ":F" + endIdx).setNumberFormat("0.00%");
-    accountSheet.getRange("G" + PositionRowStart + ":G" + endIdx).setNumberFormat("$#,##0.00");
-    accountSheet.getRange("H" + PositionRowStart + ":H" + endIdx).setNumberFormat("0.00%"); // Format column H as percentage
+  var allOrders = listOrders();
+  var openOrders = allOrders.filter(o => ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(o.status) !== -1);
+  var portfolioValue = parseFloat(accountInfo.portfolio_value) || 1;
 
-    // Set "total", "average", "median" labels and make them bold
-    accountSheet.getRange("C" + (endIdx + 1)).setValue("total").setFontWeight("bold");
-    accountSheet.getRange("D" + (endIdx + 1)).setValue("total").setFontWeight("bold");
-    accountSheet.getRange("E" + (endIdx + 1)).setValue("total").setFontWeight("bold");
-    accountSheet.getRange("F" + (endIdx + 1)).setValue("average").setFontWeight("bold");
-    accountSheet.getRange("G" + (endIdx + 1)).setValue("median").setFontWeight("bold");
-
-    accountSheet.getRange("C" + (endIdx + 2)).setFormula("=sum(C" + PositionRowStart + ":C" + endIdx + ")");
-    accountSheet.getRange("D" + (endIdx + 2)).setFormula("=sum(D" + PositionRowStart + ":D" + endIdx + ")");
-    accountSheet.getRange("E" + (endIdx + 2)).setFormula("=sum(E" + PositionRowStart + ":E" + endIdx + ")");
-    accountSheet.getRange("F" + (endIdx + 2)).setFormula("=average(F" + PositionRowStart + ":F" + endIdx + ")");
-    accountSheet.getRange("G" + (endIdx + 2)).setFormula("=median(G" + PositionRowStart + ":G" + endIdx + ")");
-  } else {
-    // If no positions, clear any old totals/averages
-    var clearStartRow = PositionRowStart;
-    var clearEndRow = PositionRowStart + 5; // Clear a few rows below start
-    accountSheet.getRange("C" + clearStartRow + ":G" + clearEndRow).clearContent();
-    accountSheet.getRange("H" + clearStartRow + ":H" + clearEndRow).clearContent(); // Clear percentage column too
-  }
-
-  // List Open Orders on the same sheet, starting at J12
-  var orders = listOrders(); 
-  var openOrders = orders.filter(function(order) {
-    return ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(order.status) !== -1;
+  var masterMap = {};
+  positions.forEach(p => { masterMap[p.symbol] = { pos: p, buys: [], sells: [] }; });
+  openOrders.forEach(o => {
+    if (!masterMap[o.symbol]) masterMap[o.symbol] = { pos: null, buys: [], sells: [] };
+    if (o.side === 'buy') masterMap[o.symbol].buys.push(o);
+    else masterMap[o.symbol].sells.push(o);
   });
 
-  var openOrdersStartRow = 12; 
-  var openOrdersStartColumn = 10; // Column J is the 10th column
+  var symbols = Object.keys(masterMap).sort();
+  var outputRows = [];
 
-  // Define all headers for open orders (moved outside if/else for safety)
-  var headers = [
-    "ID", "Symbol", "Quantity", "Side", "Type", "Time in Force", "Limit Price", "Stop Price",
-    "Status", "Submitted At", "Created At" , "Order Class",  "Legs" 
-  ];
+  symbols.forEach(sym => {
+    var data = masterMap[sym];
+    var p = data.pos;
+    var rowCount = Math.max(1, data.buys.length, data.sells.length);
 
-  if (openOrders.length > 0) {
-    accountSheet.getRange(openOrdersStartRow, openOrdersStartColumn).setValue("Open Orders");
-    accountSheet.getRange(openOrdersStartRow, openOrdersStartColumn).setFontWeight("bold");
+    for (var i = 0; i < rowCount; i++) {
+      var buy = data.buys[i] || {};
+      var sell = data.sells[i] || {};
+      
+      // NEW: Logic to find the Stop Loss price within the order legs
+      var stopLossPrice = sell.stop_price || ""; 
+      if (!stopLossPrice && sell.legs) {
+        // Search through legs for a stop or stop_limit order type
+        sell.legs.forEach(leg => {
+          if (leg.stop_price) stopLossPrice = leg.stop_price;
+        });
+      }
 
-    accountSheet.getRange(openOrdersStartRow + 1, openOrdersStartColumn, 1, headers.length).setValues([headers]).setFontWeight("bold");
-
-    var openOrderData = openOrders.map(function(order) {
-      return [
-        order.id || "",
-        order.symbol || "",
-        order.qty || "",
-        order.side || "",
-        order.type || "",
-        order.time_in_force || "",
-        order.limit_price || "",
-        order.stop_price || "",
-        order.status || "",
-        order.submitted_at || "",
-        order.created_at || "",
-        order.asset_class || "",
-       (order.legs && order.legs.length > 0) ? JSON.stringify(order.legs) : "" 
+      var row = [
+        sym,
+        (i === 0 && p) ? p.qty : "",
+        (i === 0 && p) ? p.market_value : "",
+        (i === 0 && p) ? p.unrealized_pl : "",
+        (i === 0 && p) ? p.unrealized_plpc : "",
+        (i === 0 && p) ? (p.cost_basis / p.qty) : "",
+        (i === 0 && p) ? p.current_price : "",
+        (i === 0 && p) ? (p.market_value / portfolioValue) : "",
+        buy.qty || "",
+        buy.limit_price || "",
+        sell.qty || "",
+        sell.limit_price || "",
+        stopLossPrice, // Corrected to pull from legs if necessary
+        buy.id || sell.id || ""
       ];
-    });
-    accountSheet.getRange(openOrdersStartRow + 2, openOrdersStartColumn, openOrderData.length, openOrderData[0].length).setValues(openOrderData);
-    accountSheet.autoResizeColumns(openOrdersStartColumn, openOrderData[0].length);
-  } else {
-    // Clear previous open orders if none exist now
-    accountSheet.getRange(openOrdersStartRow, openOrdersStartColumn, 100, headers.length).clearContent(); 
+      outputRows.push(row);
+    }
+  });
+
+  sheet.getRange(14, 1, 500, headers.length).clearContent();
+  if (outputRows.length > 0) {
+    sheet.getRange(14, 1, outputRows.length, headers.length).setValues(outputRows);
+    // Apply standard currency and percentage formatting...
+    sheet.getRange(14, 12, outputRows.length, 2).setNumberFormat("$#,##0.00"); // Sell Limit & Stop
   }
 }
