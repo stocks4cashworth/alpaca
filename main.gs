@@ -325,26 +325,34 @@ function clearPositions() {
 
 
 
-
-
-/**
- * Updates the "Main" sheet with a unified view of Positions and Orders.
- * Extracts Stop Loss from OCO/Bracket order legs.
- */
 function updateSheet() {
+  initializeCredentials(); // Ensure keys are loaded from apikeys.gs
+  
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("Main");
-  
+  if (!sheet) {
+    Logger.log("Error: 'Main' sheet not found.");
+    return;
+  }
+
+  // --- 1. Update Account Summary (B6, B7, B8) ---
+  var accountInfo = getAccount();
+  if (accountInfo) {
+    sheet.getRange("B6").setValue(accountInfo.buying_power || 0).setNumberFormat("$#,##0.00");
+    sheet.getRange("B7").setValue(accountInfo.cash || 0).setNumberFormat("$#,##0.00");
+    sheet.getRange("B8").setValue(accountInfo.portfolio_value || 0).setNumberFormat("$#,##0.00");
+  }
+
+  // --- 2. Define Headers ---
   var headers = [
     "Ticker", "Owned Qty", "Cost Basis", "Unrealized Gain", "Profit %", 
     "Cost Basis/Share", "Current Price", "% of Portfolio", 
     "Buy Qty", "Buy Limit", 
     "Sell Qty", "Sell Limit", "Stop", "Order ID"
   ];
-  
   sheet.getRange(13, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#f3f3f3");
 
-  var accountInfo = getAccount();
+  // --- 3. Process Positions and Orders ---
   var positions = listPositions();
   var allOrders = listOrders();
   var openOrders = allOrders.filter(o => ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(o.status) !== -1);
@@ -370,10 +378,8 @@ function updateSheet() {
       var buy = data.buys[i] || {};
       var sell = data.sells[i] || {};
       
-      // NEW: Logic to find the Stop Loss price within the order legs
       var stopLossPrice = sell.stop_price || ""; 
       if (!stopLossPrice && sell.legs) {
-        // Search through legs for a stop or stop_limit order type
         sell.legs.forEach(leg => {
           if (leg.stop_price) stopLossPrice = leg.stop_price;
         });
@@ -384,7 +390,7 @@ function updateSheet() {
         (i === 0 && p) ? p.qty : "",
         (i === 0 && p) ? p.market_value : "",
         (i === 0 && p) ? p.unrealized_pl : "",
-        (i === 0 && p) ? p.unrealized_plpc : "",
+        (i === 0 && p) ? p.unrealized_plpc : "", // Column E: Profit %
         (i === 0 && p) ? (p.cost_basis / p.qty) : "",
         (i === 0 && p) ? p.current_price : "",
         (i === 0 && p) ? (p.market_value / portfolioValue) : "",
@@ -392,17 +398,22 @@ function updateSheet() {
         buy.limit_price || "",
         sell.qty || "",
         sell.limit_price || "",
-        stopLossPrice, // Corrected to pull from legs if necessary
+        stopLossPrice,
         buy.id || sell.id || ""
       ];
       outputRows.push(row);
     }
   });
 
+  // --- 4. Write Data and Format ---
   sheet.getRange(14, 1, 500, headers.length).clearContent();
   if (outputRows.length > 0) {
     sheet.getRange(14, 1, outputRows.length, headers.length).setValues(outputRows);
-    // Apply standard currency and percentage formatting...
-    sheet.getRange(14, 12, outputRows.length, 2).setNumberFormat("$#,##0.00"); // Sell Limit & Stop
+    
+    // Set Column E (Profit %) to Percentage format
+    sheet.getRange(14, 5, outputRows.length, 1).setNumberFormat("0.00%");
+    
+    // Formatting for other price/currency columns
+    sheet.getRange(14, 12, outputRows.length, 2).setNumberFormat("$#,##0.00");
   }
 }
