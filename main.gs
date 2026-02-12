@@ -1,13 +1,6 @@
 
 // Main.gs
 
-// --- GLOBAL CONFIGURATION ---
-var scriptProperties = PropertiesService.getScriptProperties();
-
-// Fetching all 3 values from secure storage
-var ALPAC_API_KEY_ID = scriptProperties.getProperty('ALPACA_KEY'); 
-var ALPAC_API_SECRET_KEY = scriptProperties.getProperty('ALPACA_SECRET'); 
-var ALPAC_API_ENDPOINT = scriptProperties.getProperty('ALPACA_ENDPOINT'); 
 
 var PositionRowStart = 14;
 
