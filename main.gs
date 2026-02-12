@@ -10,30 +10,42 @@ var PositionRowStart = 14;
  * @param {string} path - The API endpoint path (e.g., "v2/account").
  * @param {Object} [params] - Optional parameters for the request (e.g., query string, method, payload).
  * @returns {Object|null} The parsed JSON response data, or null if an API error occurs.
- */
-function _request(path, params) {
+ */function _request(path, params) {
+  // 1. Force a reload of credentials from ScriptProperties
+  initializeCredentials(); 
+
+  // 2. Ensure keys are strings and not null/undefined
+  var keyId = String(ALPAC_API_KEY_ID || "");
+  var secretKey = String(ALPAC_API_SECRET_KEY || "");
+
+  // 3. Safety check: If keys are empty, stop before the crash
+  if (!keyId || !secretKey) {
+    Logger.log("Critical Error: API Keys are missing. please use the Alpaca Tools menu to set them.");
+    return null;
+  }
+
   var headers = {
-    "APCA-API-KEY-ID": ALPAC_API_KEY_ID,
-    "APCA-API-SECRET-KEY": ALPAC_API_SECRET_KEY,
+    "APCA-API-KEY-ID": keyId,
+    "APCA-API-SECRET-KEY": secretKey,
   };
 
   var options = {
     "headers": headers,
-    "muteHttpExceptions": true // Ensures UrlFetchApp doesn't throw on 4xx/5xx responses
+    "muteHttpExceptions": true 
   };
-  var url = ALPAC_API_ENDPOINT + path; // Use global endpoint
 
+  var url = (ALPAC_API_ENDPOINT || "https://paper-api.alpaca.markets/") + path;
+
+  // ... rest of your existing _request logic (params handling and UrlFetchApp)
   if (params) {
-    // Handle query string parameters
     if (params.qs) {
       var kv = [];
       for (var k in params.qs) {
         kv.push(k + "=" + encodeURIComponent(params.qs[k]));
       }
       url += "?" + kv.join("&");
-      delete params.qs; 
+      delete params.qs;
     }
-    // Merge other options (method, payload etc.)
     for (var k in params) {
       options[k] = params[k];
     }
