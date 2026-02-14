@@ -1,0 +1,134 @@
+function getAlpacaOptions() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Options");
+  if (!sheet) return;
+
+  const ticker = sheet.getRange("B1").getValue().toString().trim().toUpperCase();
+  const targetDateInput = sheet.getRange("B2").getValue();
+  const manualStrike = sheet.getRange("B3").getValue();
+
+  if (!ticker) return;
+
+  const apiKey = "PKY5JN04MODLJ577J0XG";
+  const apiSecret = "jhbCwzcDcMQ3XLDv3m1cdPInnZl4uwAfGmQf1oeW";
+  const headers = { "APCA-API-KEY-ID": apiKey, "APCA-API-SECRET-KEY": apiSecret };
+
+  // Clear area: A5 to O (15 columns wide)
+  sheet.getRange("A5:O1000").clearContent().setBackground(null).setFontColor(null);
+
+  try {
+    let targetDate = "";
+    if (targetDateInput instanceof Date) {
+      targetDate = Utilities.formatDate(targetDateInput, "GMT", "yyyy-MM-dd");
+    } else if (targetDateInput) {
+      targetDate = targetDateInput.toString().trim();
+    }
+
+    // --- STEP 1: FETCH EVERY SINGLE CONTRACT SNAPSHOT (PAGINATED) ---
+    let allSnapshots = {};
+    let nextPageToken = "";
+    let loopCount = 0;
+
+    do {
+      let chainUrl = `https://data.alpaca.markets/v1beta1/options/snapshots/${ticker}?feed=indicative&limit=1000`;
+      if (nextPageToken) chainUrl += `&page_token=${nextPageToken}`;
+
+      const response = UrlFetchApp.fetch(chainUrl, { "headers": headers, "muteHttpExceptions": true });
+      const result = JSON.parse(response.getContentText());
+
+      if (result.snapshots) {
+        Object.assign(allSnapshots, result.snapshots);
+      }
+      nextPageToken = result.next_page_token;
+      loopCount++;
+    } while (nextPageToken && loopCount < 15); // Safety cap at 15,000 contracts
+
+    let strikesMap = {};
+    let availableDates = new Set();
+
+    // --- STEP 2: ORGANIZE DATA BY DATE AND STRIKE ---
+    for (let symbol in allSnapshots) {
+      const parsed = parseOSISymbol(symbol);
+      availableDates.add(parsed.expiration);
+
+      if (parsed.expiration === targetDate) {
+        const snap = allSnapshots[symbol];
+        const strike = parsed.strike;
+        
+        if (!strikesMap[strike]) strikesMap[strike] = { call: null, put: null };
+
+        strikesMap[strike][parsed.type.toLowerCase()] = {
+          bid: snap.latestQuote ? (snap.latestQuote.bp || 0) : 0,
+          ask: snap.latestQuote ? (snap.latestQuote.ap || 0) : 0,
+          vol: snap.latestTrade ? (snap.latestTrade.v || 0) : 0,
+          oi: snap.openInterest || 0,
+          iv: snap.impliedVolatility || 0,
+          delta: snap.greeks ? (snap.greeks.delta || 0) : 0
+        };
+      }
+    }
+
+    // --- STEP 3: HANDLE NO DATE SELECTION ---
+    if (!targetDate || !availableDates.has(targetDate)) {
+      let sortedDates = Array.from(availableDates).sort().map(d => [d]);
+      sheet.getRange("A5").setValue("Available Dates (Paste into B2):").setFontWeight("bold");
+      if (sortedDates.length > 0) sheet.getRange(6, 1, sortedDates.length, 1).setValues(sortedDates);
+      return;
+    }
+
+    // --- STEP 4: CENTER STRIKE (10 ABOVE/BELOW) ---
+    const quoteUrl = `https://data.alpaca.markets/v2/stocks/${ticker}/quotes/latest`;
+    const quoteResp = UrlFetchApp.fetch(quoteUrl, { "headers": headers });
+    const currentPrice = JSON.parse(quoteResp.getContentText()).quote.ap || 0;
+    const centerPrice = manualStrike || currentPrice;
+
+    const sortedStrikes = Object.keys(strikesMap).map(Number).sort((a, b) => a - b);
+    let closestIdx = 0;
+    let minDiff = Math.abs(sortedStrikes[0] - centerPrice);
+    sortedStrikes.forEach((s, i) => {
+      if (Math.abs(s - centerPrice) < minDiff) { closestIdx = i; minDiff = Math.abs(s - centerPrice); }
+    });
+
+    const finalStrikes = sortedStrikes.slice(Math.max(0, closestIdx - 10), Math.min(sortedStrikes.length, closestIdx + 11));
+
+    // --- STEP 5: BUILD TABLE ---
+    const headersArr = ["C-IV", "C-Delta", "C-OI", "C-Vol", "C-Ask", "C-Bid", "Calls", "STRIKE", "Puts", "P-Bid", "P-Ask", "P-Vol", "P-OI", "P-Delta", "P-IV"];
+    let table = [headersArr];
+
+    finalStrikes.forEach(s => {
+      const c = strikesMap[s].call || { iv: 0, delta: 0, oi: 0, vol: 0, ask: 0, bid: 0 };
+      const p = strikesMap[s].put || { iv: 0, delta: 0, oi: 0, vol: 0, ask: 0, bid: 0 };
+      table.push([
+        c.iv, c.delta, c.oi, c.vol, c.ask, c.bid, "Call",
+        s,
+        "Put", p.bid, p.ask, p.vol, p.oi, p.delta, p.iv
+      ]);
+    });
+
+    // Write table and fix formatting to prevent 1899 dates
+    const outputRange = sheet.getRange(5, 1, table.length, 15);
+    outputRange.setValues(table).setNumberFormat("0.00"); // Force numeric format
+    
+    // Highlight Strike column
+    sheet.getRange(5, 8, table.length, 1).setBackground("#f3f3f3").setFontWeight("bold").setNumberFormat("0");
+    sheet.getRange(5, 1, 1, 15).setBackground("#444444").setFontColor("white");
+    
+    sheet.getRange("B3").setValue(centerPrice);
+    sheet.autoResizeColumns(1, 15);
+
+  } catch (e) {
+    sheet.getRange("A5").setValue("Error: " + e.message);
+  }
+}
+
+function parseOSISymbol(symbol) {
+  const match = symbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/);
+  if (!match) return { type: "Unknown", expiration: "", strike: 0 };
+  const dateStr = match[2];
+  const formattedDate = "20" + dateStr.substring(0,2) + "-" + dateStr.substring(2,4) + "-" + dateStr.substring(4,6);
+  return { 
+    expiration: formattedDate,
+    type: match[3] === "C" ? "Call" : "Put", 
+    strike: parseFloat(match[4]) / 1000 
+  };
+}
