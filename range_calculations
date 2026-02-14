@@ -1,43 +1,54 @@
 /**
- * Processes 'Data' sheet to calculate Bridge Bands, Trend, Position, and Pivot Markers.
+ * Processes 'Data' sheet based on:
+ * B: Date, C: Open, D: High, E: Low, F: Close, G: Volume
+ * Writes results to Column H onwards and forces chart auto-zoom.
  */
 function range_calculation() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const dataSheet = ss.getSheetByName("Data");
   
   if (!dataSheet) return "Error: 'Data' sheet not found";
-
-  const rawData = dataSheet.getRange(2, 1, dataSheet.getLastRow(), 5).getValues();
-  const data = rawData.filter(r => r[0] !== "" && r[4] !== null);
+  
+  // 1. Get data from B to F (Columns 2 to 6)
+  const lastRow = dataSheet.getLastRow();
+  if (lastRow < 2) return "No data found";
+  
+  const rawData = dataSheet.getRange(2, 2, lastRow - 1, 5).getValues();
+  
+  // Filter for rows that actually have a date and close price
+  const data = rawData.filter(r => r[0] !== "" && r[4] !== null && r[4] !== "");
   
   const length = 15;
   const trendLength = 63;
-  const pivotsLookback = 21; // From your original TV script
+  const pivotsLookback = 21;
   
-  const results = [["Date", "Low", "Open", "Close", "High", "Band Top", "Band Bottom", "Trend Line", "Outlook", "BB Pos", "HH", "LH", "HL", "LL"]];
+  // Define headers for Column H (8) through P (16)
+  const headers = ["Band Top", "Band Bottom", "Trend Line", "Outlook", "BB Pos", "HH", "LH", "HL", "LL"];
+  const results = [headers];
+  const numCols = headers.length;
 
-  // Temporary arrays to keep track of bands for pivot lookback
   let topBandsLog = [];
   let bottomBandsLog = [];
-
+  
   for (let i = 0; i < data.length; i++) {
-    // Skip if we don't have enough data for the trend
+    // Fill empty values for initial rows to maintain alignment
     if (i < trendLength) {
-      // We still calculate bands to fill our pivot log
       topBandsLog.push(null);
       bottomBandsLog.push(null);
+      results.push(new Array(numCols).fill(""));
       continue;
     }
 
     const window = data.slice(i - length + 1, i + 1);
     const trendWindow = data.slice(i - trendLength + 1, i + 1);
     
-    const closes = window.map(r => r[4]);
-    const highs = window.map(r => r[2]);
-    const lows = window.map(r => r[3]);
+    // Mapping: F=Close(4), D=High(2), E=Low(3)
+    const closes = window.map(r => r[4]); 
+    const highs = window.map(r => r[2]);  
+    const lows = window.map(r => r[3]);   
     const currentClose = closes[length - 1];
-    
-    // 1. Bridge Range Logic
+
+    // Bridge Range Logic
     const slope = (currentClose - closes[0]) / (length - 1);
     let min_diff = 1000000, max_diff = -1000000;
     for (let j = 0; j < length; j++) {
@@ -46,7 +57,7 @@ function range_calculation() {
       max_diff = Math.max(max_diff, diff);
     }
     
-    // 2. Hurst Factor
+    // Hurst Factor & ATR
     let trSum = 0;
     for(let k = 1; k < length; k++) {
       trSum += Math.max(highs[k] - lows[k], Math.abs(highs[k] - closes[k-1]), Math.abs(lows[k] - closes[k-1]));
@@ -55,17 +66,16 @@ function range_calculation() {
     const hExponent = (Math.log(Math.max(...highs) - Math.min(...lows)) - Math.log(ATR)) / Math.log(length);
     const hFactor = Math.abs((hExponent * 2) - 1);
 
-    // 3. Bands Calculation
+    // Bands Calculation
     const avg = closes.reduce((a, b) => a + b) / length;
     const sd = Math.sqrt(closes.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b) / (length - 1));
     const final_top = (avg + (sd * 2)) - (((avg + (sd * 2)) - (currentClose + max_diff)) * hFactor);
     const final_bottom = (avg - (sd * 2)) + (((currentClose + min_diff) - (avg - (sd * 2))) * hFactor);
-
+    
     topBandsLog.push(final_top);
     bottomBandsLog.push(final_bottom);
 
-    // 4. Pivot Logic (HH, LH, HL, LL)
-    // Looking back at the PREVIOUS pivotLookback days (excluding today)
+    // Pivot Logic
     const topLookback = topBandsLog.slice(-(pivotsLookback + 1), -1);
     const bottomLookback = bottomBandsLog.slice(-(pivotsLookback + 1), -1);
 
@@ -74,28 +84,32 @@ function range_calculation() {
     const isHL = final_bottom > Math.max(...bottomLookback);
     const isLL = final_bottom < Math.min(...bottomLookback);
 
-    // 5. Trend & Position
+    // Trend & Position
     const tHighs = trendWindow.map(r => r[2]);
     const tLows = trendWindow.map(r => r[3]);
     const trendLine = Math.min(...tLows) + ((Math.max(...tHighs) - Math.min(...tLows)) / 2);
     const bbPos = (currentClose - final_bottom) / (final_top - final_bottom);
 
     results.push([
-      data[i][0],
-      data[i][3], // Low
-      data[i][1], // Open
-      data[i][4], // Close
-      data[i][2], // High
-      final_top,
-      final_bottom,
-      trendLine,
+      final_top, final_bottom, trendLine,
       currentClose > trendLine ? "BULLISH" : "BEARISH",
-      bbPos.toFixed(3),
-      isHH,
-      isLH,
-      isHL,
-      isLL
+      bbPos.toFixed(3), isHH, isLH, isHL, isLL
     ]);
   }
-  return results;
+
+  // Clear and Write Data
+  dataSheet.getRange(1, 8, dataSheet.getMaxRows(), numCols).clearContent();
+  dataSheet.getRange(1, 8, results.length, numCols).setValues(results);
+
+  // --- FORCE CHART AUTO-ZOOM (IGNORE ZERO) ---
+  const charts = dataSheet.getCharts();
+  for (let i = 0; i < charts.length; i++) {
+    let chart = charts[i];
+    let updatedChart = chart.modify()
+      .setOption('vAxis.viewWindowMode', 'pretty') // This ignores 0 and zooms to data
+      .build();
+    dataSheet.updateChart(updatedChart);
+  }
+  
+  SpreadsheetApp.getUi().alert("Calculations complete. Charts auto-zoomed.");
 }
