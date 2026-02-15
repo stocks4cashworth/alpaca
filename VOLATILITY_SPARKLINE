@@ -1,19 +1,31 @@
 /**
  * Calculates 30-day rolling volatility for a sparkline.
- * Usage: =SPARKLINE(VOLATILITY_SPARKLINE("MSTR"))
- * @param {string} ticker The ticker symbol in B2.
+ * Returns a simple array of values to satisfy SPARKLINE requirements.
  */
 function VOLATILITY_SPARKLINE(ticker) {
-  if (!ticker) return;
-  initializeCredentials(); // Ensure keys are loaded
-  const headers = { "APCA-API-KEY-ID": ALPAC_API_KEY_ID, "APCA-API-SECRET-KEY": ALPAC_API_SECRET_KEY };
+  if (!ticker || ticker === "") return [];
+  
+  // Initialize credentials from apikeys.gs
+  if (typeof ALPAC_API_KEY_ID === 'undefined') {
+    try { initializeCredentials(); } catch(e) {}
+  }
+
+  const apiKey = typeof ALPAC_API_KEY_ID !== 'undefined' ? ALPAC_API_KEY_ID : "";
+  const apiSecret = typeof ALPAC_API_SECRET_KEY !== 'undefined' ? ALPAC_API_SECRET_KEY : "";
+  
+  if (!apiKey) return "Missing API Keys";
+
+  const headers = { "APCA-API-KEY-ID": apiKey, "APCA-API-SECRET-KEY": apiSecret };
   
   try {
-    // Fetch 45 days to ensure we have at least 30 trading days
-    const url = `https://data.alpaca.markets/v2/stocks/${ticker}/bars?timeframe=1Day&limit=45&adjustment=all`;
-    const resp = UrlFetchApp.fetch(url, { "headers": headers });
+    // Fetch 100 days to ensure enough trading days for a 30-day rolling window
+    const url = "https://data.alpaca.markets/v2/stocks/" + ticker + "/bars?timeframe=1Day&limit=100&adjustment=all";
+    const resp = UrlFetchApp.fetch(url, { "headers": headers, "muteHttpExceptions": true });
+    
+    if (resp.getResponseCode() !== 200) return [];
+    
     const bars = JSON.parse(resp.getContentText()).bars;
-    if (!bars || bars.length < 31) return "Need more data";
+    if (!bars || bars.length < 31) return [];
 
     // 1. Calculate daily percentage returns
     let returns = [];
@@ -22,7 +34,7 @@ function VOLATILITY_SPARKLINE(ticker) {
       returns.push(dailyReturn);
     }
 
-    // 2. Calculate rolling 30-day volatility (standard deviation of returns)
+    // 2. Calculate rolling 30-day annualized volatility
     let volHistory = [];
     const windowSize = 30;
     
@@ -30,15 +42,14 @@ function VOLATILITY_SPARKLINE(ticker) {
       let window = returns.slice(i, i + windowSize);
       let mean = window.reduce((a, b) => a + b) / windowSize;
       let variance = window.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (windowSize - 1);
-      let stdev = Math.sqrt(variance);
       
-      // Annualize it (optional, but standard for volatility)
-      let annualizedVol = stdev * Math.sqrt(252); 
-      volHistory.push(annualizedVol);
+      // Annualized Volatility
+      volHistory.push(Math.sqrt(variance) * Math.sqrt(252)); 
     }
 
-    return volHistory; // Returns an array that SPARKLINE can read
+    // Return the flat array directly
+    return volHistory; 
   } catch (e) {
-    return "Error: " + e.message;
+    return [];
   }
 }
