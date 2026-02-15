@@ -1,0 +1,91 @@
+/**
+ * Updates the "Main" sheet to show Take Profit and Limit prices for OCO orders.
+ */
+function updateSheet() {
+  initializeCredentials();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Main");
+  if (!sheet) return;
+
+  // Define Updated Headers
+  var headers = [
+    "Ticker", "Owned Qty", "Cost Basis", "Unrealized Gain", "Profit %", 
+    "Cost Basis/Share", "Current Price", "% of Portfolio", 
+    "Buy Qty", "Buy Limit", 
+    "Sell Qty", "Take Profit", "Limit", "Order ID"
+  ];
+  sheet.getRange(13, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#f3f3f3");
+
+  var accountInfo = getAccount();
+  var positions = listPositions();
+  var allOrders = listOrders();
+  var openOrders = allOrders.filter(o => ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(o.status) !== -1);
+  var portfolioValue = parseFloat(accountInfo.portfolio_value) || 1;
+
+  var masterMap = {};
+  positions.forEach(p => { masterMap[p.symbol] = { pos: p, buys: [], sells: [] }; });
+  
+  // Grouping logic for OCO/Bracket legs
+  openOrders.forEach(o => {
+    if (!masterMap[o.symbol]) masterMap[o.symbol] = { pos: null, buys: [], sells: [] };
+    if (o.side === 'buy') {
+      masterMap[o.symbol].buys.push(o);
+    } else {
+      masterMap[o.symbol].sells.push(o);
+    }
+  });
+
+  var symbols = Object.keys(masterMap).sort();
+  var outputRows = [];
+
+  symbols.forEach(sym => {
+    var data = masterMap[sym];
+    var p = data.pos;
+    var rowCount = Math.max(1, data.buys.length, data.sells.length);
+
+    for (var i = 0; i < rowCount; i++) {
+      var buy = data.buys[i] || {};
+      var sell = data.sells[i] || {};
+      
+      var tpPrice = sell.limit_price || "";
+      var slLimitPrice = "";
+      
+      // Parse legs to find Take Profit and Stop-Limit prices
+      if (sell.legs) {
+        sell.legs.forEach(leg => {
+          // Identify Take Profit (Limit) leg
+          if (leg.type === 'limit' || leg.order_type === 'limit') tpPrice = leg.limit_price;
+          // Identify Stop-Limit leg
+          if (leg.type === 'stop_limit' || leg.order_type === 'stop_limit') slLimitPrice = leg.limit_price;
+          // Fallback to stop_price if no limit is set on the stop loss
+          if (!slLimitPrice && leg.stop_price) slLimitPrice = leg.stop_price;
+        });
+      }
+
+      var row = [
+        sym,
+        (i === 0 && p) ? p.qty : "",
+        (i === 0 && p) ? p.market_value : "",
+        (i === 0 && p) ? p.unrealized_pl : "",
+        (i === 0 && p) ? p.unrealized_plpc : "",
+        (i === 0 && p) ? (p.cost_basis / p.qty) : "",
+        (i === 0 && p) ? p.current_price : "",
+        (i === 0 && p) ? (p.market_value / portfolioValue) : "",
+        buy.qty || "",
+        buy.limit_price || "",
+        sell.qty || "",
+        tpPrice,      // New "Take Profit" Column
+        slLimitPrice, // New "Limit" Column
+        buy.id || sell.id || ""
+      ];
+      outputRows.push(row);
+    }
+  });
+
+  sheet.getRange(14, 1, 500, headers.length).clearContent();
+  if (outputRows.length > 0) {
+    sheet.getRange(14, 1, outputRows.length, headers.length).setValues(outputRows);
+    sheet.getRange(14, 5, outputRows.length, 1).setNumberFormat("0.00%");
+    sheet.getRange(14, 12, outputRows.length, 2).setNumberFormat("$#,##0.00");
+  }
+}
