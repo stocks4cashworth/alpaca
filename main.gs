@@ -55,10 +55,15 @@ var PositionRowStart = 14;
   var responseCode = response.getResponseCode();
   var responseText = response.getContentText();
 
-  if (responseCode >= 400) {
-    Logger.log("API Request Error for " + url + ": " + responseCode + " - " + responseText);
-    return null; 
+ // Replace the error block in your _request function
+if (responseCode >= 400) {
+  Logger.log("API Request Error for " + url + ": " + responseCode + " - " + responseText);
+  try {
+    return JSON.parse(responseText); // Return the actual error object from Alpaca
+  } catch (e) {
+    return { message: "Unknown API Error: " + responseCode }; 
   }
+}
 
   var data = JSON.parse(responseText); 
   return data; 
