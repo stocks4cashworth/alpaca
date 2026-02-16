@@ -1,5 +1,6 @@
+
 /**
- * Updates the "Main" sheet to show Take Profit and Limit prices for OCO orders.
+ * Updates the "Main" sheet with portfolio summary, positions, and combined OCO orders.
  */
 function updateSheet() {
   initializeCredentials();
@@ -7,7 +8,15 @@ function updateSheet() {
   var sheet = ss.getSheetByName("Main");
   if (!sheet) return;
 
-  // Define Updated Headers
+  // 1. Update Account Summary
+  var accountInfo = getAccount();
+  if (accountInfo) {
+    sheet.getRange("B6").setValue(accountInfo.buying_power || 0).setNumberFormat("$#,##0.00");
+    sheet.getRange("B7").setValue(accountInfo.cash || 0).setNumberFormat("$#,##0.00");
+    sheet.getRange("B8").setValue(accountInfo.portfolio_value || 0).setNumberFormat("$#,##0.00");
+  }
+
+  // 2. Define Headers - Changed "Sell Limit" and "Stop" to "Take Profit" and "Limit"
   var headers = [
     "Ticker", "Owned Qty", "Cost Basis", "Unrealized Gain", "Profit %", 
     "Cost Basis/Share", "Current Price", "% of Portfolio", 
@@ -16,7 +25,7 @@ function updateSheet() {
   ];
   sheet.getRange(13, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#f3f3f3");
 
-  var accountInfo = getAccount();
+  // 3. Process Positions and Orders
   var positions = listPositions();
   var allOrders = listOrders();
   var openOrders = allOrders.filter(o => ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(o.status) !== -1);
@@ -25,13 +34,23 @@ function updateSheet() {
   var masterMap = {};
   positions.forEach(p => { masterMap[p.symbol] = { pos: p, buys: [], sells: [] }; });
   
-  // Grouping logic for OCO/Bracket legs
+  // Grouping logic: Pair OCO legs together
   openOrders.forEach(o => {
     if (!masterMap[o.symbol]) masterMap[o.symbol] = { pos: null, buys: [], sells: [] };
     if (o.side === 'buy') {
       masterMap[o.symbol].buys.push(o);
     } else {
-      masterMap[o.symbol].sells.push(o);
+      // Check if this is a leg of an OCO already in the list
+      var added = false;
+      masterMap[o.symbol].sells.forEach(s => {
+        if (s.order_class === 'oco' || s.order_class === 'bracket') {
+          // If they share a quantity and side, they are likely related legs
+          s.legs = s.legs || [];
+          s.legs.push(o);
+          added = true;
+        }
+      });
+      if (!added) masterMap[o.symbol].sells.push(o);
     }
   });
 
@@ -50,17 +69,14 @@ function updateSheet() {
       var tpPrice = sell.limit_price || "";
       var slLimitPrice = "";
       
-      // Parse legs to find Take Profit and Stop-Limit prices
-      if (sell.legs) {
-        sell.legs.forEach(leg => {
-          // Identify Take Profit (Limit) leg
-          if (leg.type === 'limit' || leg.order_type === 'limit') tpPrice = leg.limit_price;
-          // Identify Stop-Limit leg
-          if (leg.type === 'stop_limit' || leg.order_type === 'stop_limit') slLimitPrice = leg.limit_price;
-          // Fallback to stop_price if no limit is set on the stop loss
-          if (!slLimitPrice && leg.stop_price) slLimitPrice = leg.stop_price;
-        });
-      }
+      // Parse legs for Take Profit and Stop Limit
+      var legs = (sell.legs || []);
+      legs.forEach(leg => {
+        if (leg.type === 'limit' || leg.order_type === 'limit') tpPrice = leg.limit_price;
+        if (leg.type === 'stop_limit' || leg.order_type === 'stop_limit') slLimitPrice = leg.limit_price;
+        // Fallback for simple stop orders if you want to see the trigger
+        if (!slLimitPrice && (leg.type === 'stop' || leg.order_type === 'stop')) slLimitPrice = leg.stop_price;
+      });
 
       var row = [
         sym,
@@ -74,14 +90,15 @@ function updateSheet() {
         buy.qty || "",
         buy.limit_price || "",
         sell.qty || "",
-        tpPrice,      // New "Take Profit" Column
-        slLimitPrice, // New "Limit" Column
+        tpPrice,
+        slLimitPrice,
         buy.id || sell.id || ""
       ];
       outputRows.push(row);
     }
   });
 
+  // 4. Write Data
   sheet.getRange(14, 1, 500, headers.length).clearContent();
   if (outputRows.length > 0) {
     sheet.getRange(14, 1, outputRows.length, headers.length).setValues(outputRows);
