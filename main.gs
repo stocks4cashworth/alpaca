@@ -55,7 +55,7 @@ var PositionRowStart = 14;
   var responseCode = response.getResponseCode();
   var responseText = response.getContentText();
 
- // Replace the error block in your _request function
+// Replace the error block in your _request function
 if (responseCode >= 400) {
   Logger.log("API Request Error for " + url + ": " + responseCode + " - " + responseText);
   try {
@@ -63,25 +63,24 @@ if (responseCode >= 400) {
   } catch (e) {
     return { message: "Unknown API Error: " + responseCode }; 
   }
-}
+
 
   var data = JSON.parse(responseText); 
   return data; 
 }
 
 /**
- * Sends a DELETE request to cancel an order by its ID.
- * Uses globally defined API keys and endpoint.
- * @param {string} orderId - The ID of the order to cancel.
- * @returns {Object} An object containing the response code and text.
+ * UPDATED: Fixed cancellation request to prevent Header:null errors.
  */
 function _cancelRequest(orderId) {
+  initializeCredentials(); // Ensure variables are loaded
+
   var headers = {
-    "APCA-API-KEY-ID": ALPAC_API_KEY_ID, // Use global API key
-    "APCA-API-SECRET-KEY": ALPAC_API_SECRET_KEY, // Use global API secret
+    "APCA-API-KEY-ID": ALPAC_API_KEY_ID,
+    "APCA-API-SECRET-KEY": ALPAC_API_SECRET_KEY,
   };
 
-  var url = ALPAC_API_ENDPOINT + "v2/orders/" + orderId; // Use global endpoint
+  var url = ALPAC_API_ENDPOINT + "v2/orders/" + orderId;
   var options = {
     "method": "DELETE",
     "headers": headers,
@@ -89,13 +88,98 @@ function _cancelRequest(orderId) {
   };
 
   var response = UrlFetchApp.fetch(url, options);
-  var responseCode = response.getResponseCode();
-  var responseText = response.getContentText();
-
   return {
-    code: responseCode,
-    text: responseText
+    code: response.getResponseCode(),
+    text: response.getContentText()
   };
+}
+
+/**
+ * UPDATED: Restores account summary to B6-B8 and formats Column E.
+ */
+function updateSheet() {
+  initializeCredentials(); 
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Main");
+  if (!sheet) return;
+
+  // --- 1. Restore Account Summary (B6, B7, B8) ---
+  var accountInfo = getAccount();
+  if (accountInfo) {
+    sheet.getRange("B6").setValue(accountInfo.buying_power || 0).setNumberFormat("$#,##0.00");
+    sheet.getRange("B7").setValue(accountInfo.cash || 0).setNumberFormat("$#,##0.00");
+    sheet.getRange("B8").setValue(accountInfo.portfolio_value || 0).setNumberFormat("$#,##0.00");
+  }
+
+  // --- 2. Define and Write Headers ---
+  var headers = [
+    "Ticker", "Owned Qty", "Cost Basis", "Unrealized Gain", "Profit %", 
+    "Cost Basis/Share", "Current Price", "% of Portfolio", 
+    "Buy Qty", "Buy Limit", 
+    "Sell Qty", "Sell Limit", "Stop", "Order ID"
+  ];
+  sheet.getRange(13, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#f3f3f3");
+
+  // --- 3. Gather Data ---
+  var positions = listPositions();
+  var allOrders = listOrders();
+  var openOrders = allOrders.filter(o => ['new', 'partially_filled', 'pending_cancel', 'accepted'].indexOf(o.status) !== -1);
+  var portfolioValue = parseFloat(accountInfo.portfolio_value) || 1;
+
+  var masterMap = {};
+  positions.forEach(p => { masterMap[p.symbol] = { pos: p, buys: [], sells: [] }; });
+  openOrders.forEach(o => {
+    if (!masterMap[o.symbol]) masterMap[o.symbol] = { pos: null, buys: [], sells: [] };
+    if (o.side === 'buy') masterMap[o.symbol].buys.push(o);
+    else masterMap[o.symbol].sells.push(o);
+  });
+
+  var symbols = Object.keys(masterMap).sort();
+  var outputRows = [];
+
+  symbols.forEach(sym => {
+    var data = masterMap[sym];
+    var p = data.pos;
+    var rowCount = Math.max(1, data.buys.length, data.sells.length);
+
+    for (var i = 0; i < rowCount; i++) {
+      var buy = data.buys[i] || {};
+      var sell = data.sells[i] || {};
+      var stopLossPrice = sell.stop_price || ""; 
+      if (!stopLossPrice && sell.legs) {
+        sell.legs.forEach(leg => { if (leg.stop_price) stopLossPrice = leg.stop_price; });
+      }
+
+      outputRows.push([
+        sym,
+        (i === 0 && p) ? p.qty : "",
+        (i === 0 && p) ? p.market_value : "",
+        (i === 0 && p) ? p.unrealized_pl : "",
+        (i === 0 && p) ? p.unrealized_plpc : "", // Column E
+        (i === 0 && p) ? (p.cost_basis / p.qty) : "",
+        (i === 0 && p) ? p.current_price : "",
+        (i === 0 && p) ? (p.market_value / portfolioValue) : "",
+        buy.qty || "",
+        buy.limit_price || "",
+        sell.qty || "",
+        sell.limit_price || "",
+        stopLossPrice,
+        buy.id || sell.id || ""
+      ]);
+    }
+  });
+
+  // --- 4. Write Data and Apply Formatting ---
+  sheet.getRange(14, 1, 500, headers.length).clearContent();
+  if (outputRows.length > 0) {
+    sheet.getRange(14, 1, outputRows.length, headers.length).setValues(outputRows);
+    
+    // NEW: Set Column E to Percentage format
+    sheet.getRange(14, 5, outputRows.length, 1).setNumberFormat("0.00%");
+    
+    // Formatting for price columns
+    sheet.getRange(14, 12, outputRows.length, 2).setNumberFormat("$#,##0.00");
+  }
 }
 
 /**
@@ -147,6 +231,8 @@ function listPositions() {
  * @param {number} [stop_loss_limit_price] - For "bracket" or "oco" orders (stop_loss leg limit price, makes it stop-limit).
  * @returns {Object} The API response from the order submission, or an empty object if the request fails.
  */
+
+
 function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, order_class, take_profit_limit_price, stop_loss_stop_price, stop_loss_limit_price) {
   var payload = {
     symbol: symbol,
@@ -192,9 +278,9 @@ function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, orde
   });
   return response || {}; 
 }
-
+ }
 function orderFromSheet() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main"); // Target Main sheet
   sheet.getRange("B1").setValue("submitting");
 
   // Read and clean values
@@ -217,7 +303,13 @@ function orderFromSheet() {
   var stopPrice = stop ? parseFloat(stop) : null;
 
   var resp = submitOrder(symbol, qty, side, type, tif, limitPrice, stopPrice);
-  sheet.getRange("B1").setValue(JSON.stringify(resp, null, 2));
+ if (resp.message) {
+    sheet.getRange("B1").setValue("Order Failed");
+    sheet.getRange("B2").setValue(resp.message); // Display "insufficient qty..." here
+  } else {
+    sheet.getRange("B1").setValue("Success");
+    sheet.getRange("B2").setValue("Order ID: " + resp.id);
+  }
 }
 
 /**
@@ -273,7 +365,14 @@ function OCOorderFromSheet() {
     stopLossLimit    // Stop Loss Limit Price (optional)
   );
 
-  sheet.getRange("B1").setValue(JSON.stringify(resp, null, 2));
+// New Error Display Logic
+  if (resp.message) {
+    sheet.getRange("B1").setValue("OCO Failed");
+    sheet.getRange("B2").setValue(resp.message); // Display the specific error message
+  } else {
+    sheet.getRange("B1").setValue("OCO Success");
+    sheet.getRange("B2").setValue("Order ID: " + resp.id);
+  }
 }
 
 /**
@@ -326,4 +425,6 @@ function clearPositions() {
     sheet.deleteRows(PositionRowStart, rows);
   }
 }
+
+
 
