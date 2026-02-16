@@ -13,19 +13,27 @@ function initializeCredentials() {
   ALPAC_API_SECRET_KEY = String(props.getProperty('ALPACA_SECRET') || "");
   ALPAC_API_ENDPOINT = props.getProperty('ALPACA_ENDPOINT') || "https://paper-api.alpaca.markets/";
 }
-
+/**
+ * Trigger that runs when the spreadsheet is opened.
+ * Updated to include order execution and cancellation in the menu.
+ */
 function onOpen() {
-  var ui = SpreadsheetApp.getUi();
-  initializeCredentials();
+  const ui = SpreadsheetApp.getUi();
+  initializeCredentials(); // Ensure variables are loaded from storage
 
   ui.createMenu('🚀 Alpaca Tools')
       .addItem('📊 Update Portfolio Now', 'updateSheet')
+      .addSeparator()
+      .addItem('📥 Submit Simple Order', 'orderFromSheet')
+      .addItem('🖇️ Submit OCO Order', 'OCOorderFromSheet')
+      .addItem('🚫 Cancel Order (G11)', 'cancelOrderFromSheet')
       .addSeparator()
       .addItem('🔐 Setup API Keys', 'promptForApiKeys')
       .addItem('🧪 Switch to Paper Trading', 'usePaperTrading')
       .addItem('💰 Switch to Live Trading', 'useLiveTrading')
       .addToUi();
 
+  // If keys are missing, prompt immediately
   if (!ALPAC_API_KEY_ID || !ALPAC_API_SECRET_KEY) {
     promptForApiKeys();
   }
