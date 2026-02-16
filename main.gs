@@ -144,7 +144,7 @@ function listPositions() {
  * @param {number} [stop_loss_limit_price] - For "bracket" or "oco" orders (stop_loss leg limit price, makes it stop-limit).
  * @returns {Object} The API response from the order submission, or an empty object if the request fails.
  */
-
+}
 
 function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, order_class, take_profit_limit_price, stop_loss_stop_price, stop_loss_limit_price) {
   var payload = {
