@@ -1,0 +1,55 @@
+/**
+ * Fetches open orders from Alpaca and writes them to the "Open Orders" sheet.
+ */
+function updateOpenOrdersSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var openOrdersSheet = ss.getSheetByName("Open Orders");
+
+  // Create sheet if it doesn't exist
+  if (!openOrdersSheet) {
+    openOrdersSheet = ss.insertSheet("Open Orders");
+  } else {
+    // Clear existing data below the header
+    openOrdersSheet.getRange("A2:Z").clearContent();
+  }
+
+  // Define headers for open orders
+  var headers = [
+    "ID", "Symbol", "Quantity", "Side", "Type", "Time in Force", "Limit Price", "Stop Price",
+    "Status", "Submitted At", "Created At", "Order Class", "Client Order ID"
+  ];
+  openOrdersSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+
+  // 1. Retrieve all orders (listOrders in main.gs fetches up to 500 from the last 30 days)
+  var allOrders = listOrders(); 
+
+  // 2. Filter for only open/active statuses
+  var openStatuses = ['new', 'partially_filled', 'pending_cancel', 'accepted', 'pending_new', 'accepted_for_bidding'];
+  var openOrders = allOrders.filter(function(order) {
+    return openStatuses.indexOf(order.status) !== -1;
+  });
+
+  // 3. Prepare and write data
+  if (openOrders.length > 0) {
+    var openOrderData = openOrders.map(function(order) {
+      return [
+        order.id || "",
+        order.symbol || "",
+        order.qty || "",
+        order.side || "",
+        order.type || "",
+        order.time_in_force || "",
+        order.limit_price || "",
+        order.stop_price || "",
+        order.status || "",
+        order.submitted_at || "",
+        order.created_at || "",
+        order.order_class || "",
+        order.client_order_id || ""
+      ];
+    });
+
+    openOrdersSheet.getRange(2, 1, openOrderData.length, headers.length).setValues(openOrderData);
+    openOrdersSheet.autoResizeColumns(1, headers.length);
+  }
+}
