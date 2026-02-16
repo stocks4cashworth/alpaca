@@ -26,7 +26,7 @@ function onOpen() {
       .addSeparator()
       .addItem('📥 Submit Simple Order', 'orderFromSheet')
       .addItem('🖇️ Submit OCO Order', 'OCOorderFromSheet')
-      .addItem('🚫 Cancel Order (G11)', 'cancelOrderFromSheet')
+      .addItem('🚫 Cancel Order', 'cancelOrderFromSheet')
       .addSeparator()
       .addItem('🔐 Setup API Keys', 'promptForApiKeys')
       .addItem('🧪 Switch to Paper Trading', 'usePaperTrading')
