@@ -33,6 +33,16 @@ function onOpen() {
       .addItem('💰 Switch to Live Trading', 'useLiveTrading')
       .addToUi();
 
+// 2. Create the Dropdown for Buy/Sell in Cell F4
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main");
+  if (sheet) {
+    var cell = sheet.getRange("F4");
+    var rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['buy', 'sell'], true) // Creates the option box
+      .setAllowInvalid(false) // Forces user to pick one of the two
+      .build();
+    cell.setDataValidation(rule);
+  }
   // If keys are missing, prompt immediately
   if (!ALPAC_API_KEY_ID || !ALPAC_API_SECRET_KEY) {
     promptForApiKeys();
