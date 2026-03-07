@@ -54,6 +54,17 @@ function onOpen() {
     cell.setDataValidation(rule);
   }
 
+// create drop down for order length in f7
+ var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main");
+  if (sheet) {
+    var cell = sheet.getRange("f7");
+    var rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['gtc','trailing_stop'], true) // Creates the option box
+      .setAllowInvalid(false) // Forces user to pick one of the two
+      .build();
+    cell.setDataValidation(rule);
+  }
+
 
 
   // If keys are missing, prompt immediately
