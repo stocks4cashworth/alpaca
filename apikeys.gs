@@ -59,12 +59,12 @@ function onOpen() {
   if (sheet) {
     var cell = sheet.getRange("f7");
     var rule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(['gtc','trailing_stop'], true) // Creates the option box
+      .requireValueInList(['gtc','day','cls','opg','ioc','fok'], true) // Creates the option box
       .setAllowInvalid(false) // Forces user to pick one of the two
       .build();
     cell.setDataValidation(rule);
   }
-
+ 
 
 
   // If keys are missing, prompt immediately
