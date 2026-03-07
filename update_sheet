@@ -11,9 +11,9 @@ function updateSheet() {
   // 1. Update Account Summary
   var accountInfo = getAccount();
   if (accountInfo) {
+    sheet.getRange("B4").setValue(accountInfo.portfolio_value || 0).setNumberFormat("$#,##0.00");
+    sheet.getRange("B5").setValue(accountInfo.cash || 0).setNumberFormat("$#,##0.00");
     sheet.getRange("B6").setValue(accountInfo.buying_power || 0).setNumberFormat("$#,##0.00");
-    sheet.getRange("B7").setValue(accountInfo.cash || 0).setNumberFormat("$#,##0.00");
-    sheet.getRange("B8").setValue(accountInfo.portfolio_value || 0).setNumberFormat("$#,##0.00");
   }
 
   // 2. Define Headers - Changed "Sell Limit" and "Stop" to "Take Profit" and "Limit"
