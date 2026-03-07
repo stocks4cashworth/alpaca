@@ -1,0 +1,64 @@
+/**
+ * Queries Alpaca for the latest price of the ticker in cell D4.
+ * Writes price to D6 and status updates to B2.
+ * Normalizes input to uppercase to handle lowercase entries.
+ */
+function queryTickerPrice() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Main");
+  if (!sheet) return;
+
+  // 1. Get the ticker from D4 and normalize it to UPPERCASE
+  var tickerInput = sheet.getRange("D4").getValue();
+  var ticker = tickerInput.toString().toUpperCase().trim();
+  
+  if (!ticker) {
+    sheet.getRange("B2").setValue("Error: Enter a ticker in D4.");
+    return;
+  }
+
+  // 2. Status Update to B2
+  sheet.getRange("B2").setValue("Fetching price for " + ticker + "...");
+
+  // 3. Setup API Details (reusing your key logic)
+  var keyId = String(ALPAC_API_KEY_ID || "");
+  var secretKey = String(ALPAC_API_SECRET_KEY || "");
+  
+  // Use the IEX feed to ensure data is found for most tickers on free accounts
+  var url = "https://data.alpaca.markets/v2/stocks/" + ticker + "/trades/latest?feed=iex";
+
+  var options = {
+    "method": "get",
+    "headers": {
+      "APCA-API-KEY-ID": keyId,
+      "APCA-API-SECRET-KEY": secretKey,
+      "Accept": "application/json"
+    },
+    "muteHttpExceptions": true 
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseText = response.getContentText();
+    
+    // Safety check to ensure we received JSON
+    if (responseText.charAt(0) !== '{') {
+      sheet.getRange("B2").setValue("API Error: Check ticker symbol or API keys.");
+      return;
+    }
+
+    var data = JSON.parse(responseText);
+
+    // 4. Handle Results and output to D6
+    if (data && data.trade && data.trade.p) {
+      var price = data.trade.p;
+      sheet.getRange("D6").setValue(price).setNumberFormat("$#,##0.00");
+      sheet.getRange("B2").setValue("Success: Price updated for " + ticker);
+    } else {
+      sheet.getRange("B2").setValue("Query Failed: No trade data for " + ticker);
+      sheet.getRange("D6").clearContent();
+    }
+  } catch (e) {
+    sheet.getRange("B2").setValue("System Error: " + e.message);
+  }
+}
