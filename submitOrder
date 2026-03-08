@@ -1,0 +1,145 @@
+/**
+ * Standalone Unified Order Submission
+ * Translates F4 options into correct Alpaca Type and Class.
+ */
+function submitOrder() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Main");
+  if (!sheet) return;
+
+  // 1. Reset Status
+  sheet.getRange("B1").setValue("Submitting...");
+  sheet.getRange("B2").clearContent();
+
+  // 2. Load Credentials
+  const props = PropertiesService.getScriptProperties();
+  const keyId = props.getProperty('ALPACA_KEY'); 
+  const secretKey = props.getProperty('ALPACA_SECRET');
+
+  if (!keyId || !secretKey) {
+    sheet.getRange("B1").setValue("Key Error");
+    sheet.getRange("B2").setValue("Run 'Setup API Keys' first.");
+    return;
+  }
+
+  // 3. Extract and Normalize Inputs
+  const ticker = sheet.getRange("D4").getValue().toString().toUpperCase().trim();
+  const side   = sheet.getRange("E4").getValue().toString().toLowerCase().trim();
+  const f4Value = sheet.getRange("F4").getValue().toString().toLowerCase().trim(); // Dropdown Value
+  const tif    = sheet.getRange("G4").getValue().toString().toLowerCase().trim() || "gtc";
+  const qty    = parseFloat(sheet.getRange("F5").getValue());
+
+  const entryPrice = sheet.getRange("F6").getValue();
+  const takeProfit = sheet.getRange("F7").getValue();
+  const stopPrice  = sheet.getRange("F8").getValue();
+  const stopLimit  = sheet.getRange("F9").getValue();
+
+  if (!ticker || isNaN(qty) || qty <= 0) {
+    sheet.getRange("B1").setValue("Input Error");
+    sheet.getRange("B2").setValue("Verify Ticker (D4) and Shares (F5).");
+    return;
+  }
+
+  // 4. LOGIC GATE: Translate F4 into Alpaca 'Type' and 'Order Class'
+  let type = "market";       // Default
+  let orderClass = "simple"; // Default
+
+  switch (f4Value) {
+    case 'market':
+      type = "market";
+      orderClass = "simple";
+      break;
+    case 'limit':
+      type = "limit";
+      orderClass = "simple";
+      break;
+    case 'stop':
+      type = "stop";
+      orderClass = "simple";
+      break;
+    case 'stop_limit':
+      type = "stop_limit";
+      orderClass = "simple";
+      break;
+    case 'trailing_stop':
+      type = "trailing_stop";
+      orderClass = "simple";
+      break;
+    case 'oco':
+      type = "limit"; // OCO must be limit or stop
+      orderClass = "oco";
+      break;
+    case 'bracket_m':
+      type = "market";
+      orderClass = "bracket";
+      break;
+    case 'bracket_l':
+      type = "limit";
+      orderClass = "bracket";
+      break;
+  }
+
+  // 5. Build Dynamic Payload
+  let payload = {
+    "symbol": ticker,
+    "qty": qty.toString(),
+    "side": side,
+    "type": type,
+    "time_in_force": tif,
+    "order_class": orderClass
+  };
+
+  // Add Price for Limit orders (Limit, Stop_Limit, or Bracket_L)
+  if (type === "limit" || type === "stop_limit") {
+    if (entryPrice) payload.limit_price = entryPrice.toString();
+  }
+
+  // Add Stop Price for Stop orders
+  if (type === "stop" || type === "stop_limit") {
+    if (stopPrice) payload.stop_price = stopPrice.toString();
+  }
+
+  // Add Legs for Bracket or OCO
+  if (orderClass === "bracket" || orderClass === "oco") {
+    if (takeProfit) {
+      payload.take_profit = { "limit_price": takeProfit.toString() };
+    }
+    if (stopPrice) {
+      payload.stop_loss = { "stop_price": stopPrice.toString() };
+      // If a limit is provided in F9, turn the stop loss leg into a stop-limit
+      if (stopLimit) payload.stop_loss.limit_price = stopLimit.toString();
+    }
+  }
+
+  // 6. Execute Request
+  const isPaper = keyId.startsWith('PK');
+  const baseUrl = isPaper ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
+  
+  const options = {
+    "method": "post",
+    "headers": {
+      "APCA-API-KEY-ID": keyId,
+      "APCA-API-SECRET-KEY": secretKey,
+      "Content-Type": "application/json"
+    },
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(baseUrl + "/v2/orders", options);
+    const code = response.getResponseCode();
+    const data = JSON.parse(response.getContentText());
+
+    if (code <= 201) {
+      sheet.getRange("B1").setValue("Success");
+      sheet.getRange("B2").setValue("Order ID: " + data.id);
+    } else {
+      sheet.getRange("B1").setValue("Failed (" + code + ")");
+      sheet.getRange("B2").setValue(data.message || "Unknown error.");
+    }
+  } catch (e) {
+    sheet.getRange("B1").setValue("System Error");
+    sheet.getRange("B2").setValue(e.message);
+  }
+}
