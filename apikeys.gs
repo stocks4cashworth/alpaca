@@ -49,7 +49,7 @@ function onOpen() {
   if (sheet) {
     var cell = sheet.getRange("f4");
     var rule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(['market', 'limit','oco','bracket_m','bracket_l','stop','stop_limit','trailing_stop'], true) // Creates the option box
+      .requireValueInList(['market','oco','bracket_m','bracket_L', 'limit','stop','stop_limit','trailing_stop'], true) // Creates the option box
       .setAllowInvalid(false) // Forces user to pick one of the two
       .build();
     cell.setDataValidation(rule);
