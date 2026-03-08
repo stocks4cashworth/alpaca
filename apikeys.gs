@@ -24,19 +24,22 @@ function onOpen() {
   ui.createMenu('🚀 Alpaca Tools')
       .addItem('📊 Update Portfolio Now', 'updateSheet')
       .addSeparator()
-      .addItem('📥 Submit Simple Order', 'orderFromSheet')
-      .addItem('🖇️ Submit OCO Order', 'OCOorderFromSheet')
-      .addItem('🚫 Cancel Order', 'cancelOrderFromSheet')
+      .addItem('📥 Submit Order', 'submitOrder')
+      .addSeparator()
+      .addItem('🚫 Cancel Order (c12)', 'cancelOrderFromSheet')
+      .addItem('🚫 Cancel all orders for ticker (f4)','cancelOrdersByTicker')
       .addSeparator()
       .addItem('🔐 Setup API Keys', 'promptForApiKeys')
       .addItem('🧪 Switch to Paper Trading', 'usePaperTrading')
       .addItem('💰 Switch to Live Trading', 'useLiveTrading')
       .addToUi();
 
+
+
 // 2. Create the Dropdown for Buy/Sell in Cell F4
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main");
   if (sheet) {
-    var cell = sheet.getRange("F4");
+    var cell = sheet.getRange("e4");
     var rule = SpreadsheetApp.newDataValidation()
       .requireValueInList(['buy', 'sell'], true) // Creates the option box
       .setAllowInvalid(false) // Forces user to pick one of the two
@@ -49,17 +52,16 @@ function onOpen() {
   if (sheet) {
     var cell = sheet.getRange("f4");
     var rule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(['market','oco','bracket_m','bracket_L', 'limit','stop','stop_limit','trailing_stop'], true) // Creates the option box
+      .requireValueInList(['market', 'limit','oco','bracket_m','bracket_l','stop','stop_limit','trailing_stop'], true) // Creates the option box
       .setAllowInvalid(false) // Forces user to pick one of the two
       .build();
     cell.setDataValidation(rule);
   }
 
-
 // create drop down for order length in f7
  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main");
   if (sheet) {
-    var cell = sheet.getRange("f7");
+    var cell = sheet.getRange("g4");
     var rule = SpreadsheetApp.newDataValidation()
       .requireValueInList(['gtc','day','cls','opg','ioc','fok'], true) // Creates the option box
       .setAllowInvalid(false) // Forces user to pick one of the two
