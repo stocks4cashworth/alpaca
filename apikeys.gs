@@ -43,16 +43,18 @@ function onOpen() {
       .build();
     cell.setDataValidation(rule);
   }
+
 // create drop down for order type in f6
  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main");
   if (sheet) {
-    var cell = sheet.getRange("f6");
+    var cell = sheet.getRange("f4");
     var rule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(['market', 'limit','stop','stop_limit','trailing_stop'], true) // Creates the option box
+      .requireValueInList(['market', 'limit','oco','bracket_m','bracket_l','stop','stop_limit','trailing_stop'], true) // Creates the option box
       .setAllowInvalid(false) // Forces user to pick one of the two
       .build();
     cell.setDataValidation(rule);
   }
+
 
 // create drop down for order length in f7
  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main");
