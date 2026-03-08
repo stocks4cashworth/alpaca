@@ -10,7 +10,8 @@ var PositionRowStart = 14;
  * @param {string} path - The API endpoint path (e.g., "v2/account").
  * @param {Object} [params] - Optional parameters for the request (e.g., query string, method, payload).
  * @returns {Object|null} The parsed JSON response data, or null if an API error occurs.
- */function _request(path, params) {
+ */
+function _request(path, params) {
   // 1. Force a reload of credentials from ScriptProperties
   initializeCredentials(); 
 
@@ -64,7 +65,7 @@ if (responseCode >= 400) {
     return { message: "Unknown API Error: " + responseCode }; 
   }
 
-
+}
   var data = JSON.parse(responseText); 
   return data; 
 }
@@ -144,7 +145,7 @@ function listPositions() {
  * @param {number} [stop_loss_limit_price] - For "bracket" or "oco" orders (stop_loss leg limit price, makes it stop-limit).
  * @returns {Object} The API response from the order submission, or an empty object if the request fails.
  */
-}
+
 
 function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, order_class, take_profit_limit_price, stop_loss_stop_price, stop_loss_limit_price) {
   var payload = {
@@ -191,114 +192,19 @@ function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, orde
   });
   return response || {}; 
 }
- }
-function orderFromSheet() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Main"); // Target Main sheet
-  sheet.getRange("B1").setValue("submitting");
-
-  // Read and clean values
-  var side = sheet.getRange("G3").getValue().toString().toLowerCase().trim();
-  var symbol = sheet.getRange("G4").getValue().toString().toUpperCase().trim();
-  var qty = parseFloat(sheet.getRange("G5").getValue());
-  var type = sheet.getRange("G6").getValue().toString().toLowerCase().trim();
-  var tif = sheet.getRange("G7").getValue().toString().toLowerCase().trim();
-  var limit = sheet.getRange("G8").getValue();
-  var stop = sheet.getRange("G9").getValue();
-
-  // Basic validation
-  if (!symbol || isNaN(qty)) {
-    sheet.getRange("B1").setValue("Error: Check Symbol (G4) and Quantity (G5).");
-    return;
-  }
-
-  // Ensure limit and stop are numbers or null
-  var limitPrice = limit ? parseFloat(limit) : null;
-  var stopPrice = stop ? parseFloat(stop) : null;
-
-  var resp = submitOrder(symbol, qty, side, type, tif, limitPrice, stopPrice);
- if (resp.message) {
-    sheet.getRange("B1").setValue("Order Failed");
-    sheet.getRange("B2").setValue(resp.message); // Display "insufficient qty..." here
-  } else {
-    sheet.getRange("B1").setValue("Success");
-    sheet.getRange("B2").setValue("Order ID: " + resp.id);
-  }
-}
+ 
 
 /**
- * Submits an OCO (One-Cancels-Other) order based on values from sheet K3:K10.
- * Reads symbol from G4 and forces it to uppercase.
- *
- * K3: Side (buy/sell)
- * G4: Symbol (shared with simple order)
- * K5: Quantity
- * K6: Primary Order Type (e.g., limit)
- * K7: Time in Force (e.g., gtc)
- * K8: Take Profit Limit Price
- * K9: Stop Loss Stop Price
- * K10: Stop Loss Limit Price (Optional, if provided, makes it a stop-limit)
- */
-function OCOorderFromSheet() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet();
-  sheet.getRange("B1").setValue("submitting OCO"); // Update status cell
-
-  var side = sheet.getRange("K3").getValue();
-  var symbol = sheet.getRange("G4").getValue().toUpperCase(); // Read from G4 and force uppercase
-  var qty = sheet.getRange("K5").getValue();
-  var type = sheet.getRange("K6").getValue(); // e.g., "limit" for the primary order
-  var tif = sheet.getRange("K7").getValue();
-  var takeProfitLimit = sheet.getRange("K8").getValue();
-  var stopLossStop = sheet.getRange("K9").getValue();
-  var stopLossLimit = sheet.getRange("K10").getValue(); // Optional stop-limit price
-
-  // Basic validation for symbol
-  if (!symbol) {
-    sheet.getRange("B1").setValue("Error: Symbol (G4) cannot be empty.");
-    return;
-  }
-
-  // Validate required OCO parameters
-  if (!takeProfitLimit || !stopLossStop) {
-    sheet.getRange("B1").setValue("Error: Take Profit Limit (K8) and Stop Loss Stop (K9) are required for OCO orders.");
-    return;
-  }
-
-  // Call the enhanced submitOrder function with OCO specific parameters
-  var resp = submitOrder(
-    symbol,
-    qty,
-    side,
-    type, // Primary order type
-    tif,
-    null, // No simple limit_price for the primary order (it's handled by take_profit)
-    null, // No simple stop_price for the primary order (it's handled by stop_loss)
-    "oco", // Order Class
-    takeProfitLimit, // Take Profit Limit Price
-    stopLossStop,    // Stop Loss Stop Price
-    stopLossLimit    // Stop Loss Limit Price (optional)
-  );
-
-// New Error Display Logic
-  if (resp.message) {
-    sheet.getRange("B1").setValue("OCO Failed");
-    sheet.getRange("B2").setValue(resp.message); // Display the specific error message
-  } else {
-    sheet.getRange("B1").setValue("OCO Success");
-    sheet.getRange("B2").setValue("Order ID: " + resp.id);
-  }
-}
-
-/**
- * Cancels an order by its ID, read from cell G11.
+ * Cancels an order by its ID, read from cell c12.
  * Displays status in cell B1.
  */
 function cancelOrderFromSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var orderIdToCancel = sheet.getRange("G11").getValue(); // Read from G11
+  var orderIdToCancel = sheet.getRange("c12").getValue(); // Read from c12
   var statusCell = sheet.getRange("B1"); // Status cell
 
   if (!orderIdToCancel) {
-    statusCell.setValue("No Order ID provided in G11.");
+    statusCell.setValue("No Order ID provided in c12.");
     return;
   }
 
@@ -338,6 +244,7 @@ function clearPositions() {
     sheet.deleteRows(PositionRowStart, rows);
   }
 }
+
 
 
 
