@@ -29,6 +29,8 @@ function onOpen() {
       .addItem('🚫 Cancel Order (c12)', 'cancelOrderFromSheet')
       .addItem('🚫 Cancel all orders for ticker (f4)','cancelOrdersByTicker')
       .addSeparator()
+      .addItem('retrieve filled orders','updatefilledSheet' )
+      .addSeparator()
       .addItem('🔐 Setup API Keys', 'promptForApiKeys')
       .addItem('🧪 Switch to Paper Trading', 'usePaperTrading')
       .addItem('💰 Switch to Live Trading', 'useLiveTrading')
