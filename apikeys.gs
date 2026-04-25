@@ -30,6 +30,7 @@ function onOpen() {
       .addItem('🚫 Cancel all orders for ticker (f4)','cancelOrdersByTicker')
       .addSeparator()
       .addItem('retrieve filled orders','updatefilledSheet' )
+      .addItem('📂 Refresh Open Orders Tab', 'updateOpenOrdersSheet') 
       .addSeparator()
       .addItem('🔐 Setup API Keys', 'promptForApiKeys')
       .addItem('🧪 Switch to Paper Trading', 'usePaperTrading')
