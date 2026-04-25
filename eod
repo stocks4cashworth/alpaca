@@ -1,0 +1,55 @@
+/**
+ * Creates or updates an "EOD Summary" tab with a historical log of portfolio performance.
+ */
+function createEODSummary() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var summarySheet = ss.getSheetByName("EOD");
+  
+  // Create the sheet if it doesn't exist
+  if (!summarySheet) {
+    summarySheet = ss.insertSheet("EOD Summary");
+    var headers = ["Date", "Portfolio Value", "Cash", "Unrealized PL", "Top Holding", "Total Positions"];
+    summarySheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+  }
+
+  // Fetch current account data
+  var accountInfo = getAccount();
+  var positions = listPositions(); //
+  
+  if (!accountInfo) return;
+
+  // Calculate summary metrics
+  var date = new Date();
+  var portfolioValue = accountInfo.portfolio_value || 0;
+  var cash = accountInfo.cash || 0;
+  
+  // Find the top holding by market value
+  var topHolding = "N/A";
+  if (positions.length > 0) {
+    var topPos = positions.reduce((prev, current) => 
+      (parseFloat(prev.market_value) > parseFloat(current.market_value)) ? prev : current
+    );
+    topHolding = topPos.symbol;
+  }
+
+  // Calculate total unrealized P/L across all positions
+  var totalUnrealizedPL = positions.reduce((sum, p) => sum + parseFloat(p.unrealized_pl || 0), 0);
+
+  // Prepare the row data
+  var rowData = [
+    date,
+    portfolioValue,
+    cash,
+    totalUnrealizedPL,
+    topHolding,
+    positions.length
+  ];
+
+  // Append to the next available row
+  summarySheet.appendRow(rowData);
+  
+  // Format columns
+  var lastRow = summarySheet.getLastRow();
+  summarySheet.getRange(lastRow, 2, 1, 3).setNumberFormat("$#,##0.00");
+  summarySheet.autoResizeColumns(1, 6);
+}
