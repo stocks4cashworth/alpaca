@@ -143,3 +143,154 @@ function submitOrder() {
     sheet.getRange("B2").setValue(e.message);
   }
 }
+
+
+/**
+ * Advanced Order: Add to Position
+ * Queries Alpaca for the latest trade price of the ticker in D4,
+ * calculates a limit price 0.005% below that trade price,
+ * and submits a bracket order using the share count from D9 (rounded up if fractional)
+ * with an attached 2% stop-loss leg.
+ */
+function addToPosition() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Main");
+  if (!sheet) {
+    Logger.log("Error: 'Main' sheet not found.");
+    return;
+  }
+
+  // 1. Reset status cells on the sheet
+  sheet.getRange("B1").setValue("Processing...");
+  sheet.getRange("B2").clearContent();
+
+  // 2. Fetch and normalize inputs from the sheet
+  var ticker = sheet.getRange("D4").getValue().toString().toUpperCase().trim(); // Ticker cell
+  var rawQty = parseFloat(sheet.getRange("D9").getValue()); // Share count from D9
+
+  if (!ticker) {
+    sheet.getRange("B1").setValue("Input Error");
+    sheet.getRange("B2").setValue("Please enter a valid ticker in D4.");
+    return;
+  }
+
+  if (isNaN(rawQty) || rawQty <= 0) {
+    sheet.getRange("B1").setValue("Input Error");
+    sheet.getRange("B2").setValue("Please enter a valid share quantity in D9.");
+    return;
+  }
+
+  // CRITICAL UPDATE: Round up to the next whole share if the input is fractional
+  var qty = Math.ceil(rawQty);
+
+  // 3. Setup API credentials and endpoints
+  initializeCredentials(); // Loads global variables safely
+  var keyId = String(ALPAC_API_KEY_ID || ""); 
+  var secretKey = String(ALPAC_API_SECRET_KEY || ""); 
+  
+  if (!keyId || !secretKey) {
+    sheet.getRange("B1").setValue("Key Error");
+    sheet.getRange("B2").setValue("Check API Keys in Setup.");
+    return;
+  }
+
+  // 4. Query Alpaca for the latest trade price
+  var dataUrl = "https://data.alpaca.markets/v2/stocks/" + ticker + "/trades/latest?feed=iex"; 
+  var fetchOptions = {
+    "method": "get",
+    "headers": {
+      "APCA-API-KEY-ID": keyId,
+      "APCA-API-SECRET-KEY": secretKey,
+      "Accept": "application/json"
+    },
+    "muteHttpExceptions": true 
+  };
+
+  var lastTradePrice = 0;
+  try {
+    var response = UrlFetchApp.fetch(dataUrl, fetchOptions); 
+    var responseText = response.getContentText(); 
+    
+    if (responseText.charAt(0) !== '{') { 
+      sheet.getRange("B1").setValue("API Error");
+      sheet.getRange("B2").setValue("Invalid response feed fetching market price.");
+      return;
+    }
+    
+    var priceData = JSON.parse(responseText);
+    if (priceData && priceData.trade && priceData.trade.p) {
+      lastTradePrice = parseFloat(priceData.trade.p); 
+    } else {
+      sheet.getRange("B1").setValue("Query Failed");
+      sheet.getRange("B2").setValue("No trade data available for " + ticker);
+      return;
+    }
+  } catch (e) {
+    sheet.getRange("B1").setValue("System Error");
+    sheet.getRange("B2").setValue("Price query failed: " + e.message);
+    return;
+  }
+
+  // 5. Calculate entry limit price and secondary stop-loss parameter
+  // Entry price is 0.05% below the market price (Multiplied by 0.9995)
+  var limitEntryPrice = lastTradePrice * 0.9995;
+  
+  // Stop-loss trigger is set 2% below our limit execution price (Multiplied by 0.98)
+  var stopLossPrice = limitEntryPrice * 0.98;
+
+  // Round values cleanly to 2 decimal places for execution compliance
+  limitEntryPrice = Math.round(limitEntryPrice * 100) / 100;
+  stopLossPrice = Math.round(stopLossPrice * 100) / 100;
+
+  // 6. Build the Bracket Order Payload
+  var orderPayload = {
+    "symbol": ticker,
+    "qty": qty.toString(),
+    "side": "buy",
+    "type": "limit", // The main order type is a limit order to buy below the market
+    "time_in_force": "gtc", // Good 'Til Cancelled ensures protection attaches
+    "limit_price": limitEntryPrice.toString(),
+    "order_class": "bracket", // Bracket class links multi-leg dependencies
+    "stop_loss": {
+      "stop_price": stopLossPrice.toString() // Triggers a market order to sell if hit
+    }
+  };
+
+  // 7. Execute order submission to order desk endpoints
+  var isPaper = keyId.startsWith('PK'); 
+  var tradeUrl = (isPaper ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets") + "/v2/orders"; 
+  
+  var tradeOptions = {
+    "method": "post",
+    "headers": {
+      "APCA-API-KEY-ID": keyId,
+      "APCA-API-SECRET-KEY": secretKey,
+      "Content-Type": "application/json"
+    },
+    "payload": JSON.stringify(orderPayload), 
+    "muteHttpExceptions": true
+  };
+
+  try {
+    var orderResponse = UrlFetchApp.fetch(tradeUrl, tradeOptions); 
+    var responseCode = orderResponse.getResponseCode(); 
+    var orderData = JSON.parse(orderResponse.getContentText()); 
+
+    if (responseCode <= 201) { 
+      sheet.getRange("B1").setValue("Success"); 
+      sheet.getRange("B2").setValue("Qty: " + qty + " | Limit: $" + limitEntryPrice.toFixed(2) + " | SL: $" + stopLossPrice.toFixed(2));
+      Logger.log("Successfully submitted bracket position for " + ticker + ". Parent ID: " + orderData.id);
+    } else {
+      sheet.getRange("B1").setValue("Failed (" + responseCode + ")"); 
+      sheet.getRange("B2").setValue(orderData.message || "Unknown error occurred."); 
+    }
+  } catch (err) {
+    sheet.getRange("B1").setValue("System Error");
+    sheet.getRange("B2").setValue(err.message);
+  }
+
+  // 8. Refresh portfolio layout view directly
+  if (typeof updateSheet === "function") {
+    updateSheet(); 
+  }
+}
