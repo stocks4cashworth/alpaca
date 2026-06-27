@@ -193,33 +193,51 @@ function submitOrder(symbol, qty, side, type, tif, limit_price, stop_price, orde
   return response || {}; 
 }
  
-
 /**
- * Cancels an order by its ID, read from cell c12.
- * Displays status in cell B1.
+ * Cancels a single specific order by its ID read from cell C12.
+ * Displays status in cell B1 and logs details to B2.
  */
 function cancelOrderFromSheet() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var orderIdToCancel = sheet.getRange("c12").getValue(); // Read from c12
-  var statusCell = sheet.getRange("B1"); // Status cell
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Main") || ss.getActiveSheet();
+  
+  var orderIdToCancel = sheet.getRange("C12").getValue().toString().trim();
+  var statusCell = sheet.getRange("B1");
+  var detailsCell = sheet.getRange("B2");
 
   if (!orderIdToCancel) {
-    statusCell.setValue("No Order ID provided in c12.");
+    statusCell.setValue("Input Error");
+    detailsCell.setValue("No Order ID provided in C12.");
     return;
   }
 
-  statusCell.setValue("Attempting to cancel order: " + orderIdToCancel);
+  statusCell.setValue("Cancelling...");
+  detailsCell.setValue("Attempting to cancel order: " + orderIdToCancel);
 
+  // Execute cancellation request using internal handler
   var cancellationResult = _cancelRequest(orderIdToCancel);
 
   if (cancellationResult.code >= 200 && cancellationResult.code < 300) {
-    statusCell.setValue("Successfully requested cancellation for order: " + orderIdToCancel);
+    statusCell.setValue("Success");
+    detailsCell.setValue("Successfully cancelled order: " + orderIdToCancel);
+    
+    // Clear out C12 so you don't accidentally click it twice
+    sheet.getRange("C12").clearContent();
+    
+    // Refresh layout views automatically
+    if (typeof updateSheet === "function") {
+      updateSheet();
+    }
   } else {
-    statusCell.setValue("Error canceling order " + orderIdToCancel + ". Code: " + cancellationResult.code + ", Response: " + cancellationResult.text);
-    Logger.log("Error canceling order " + orderIdToCancel + ". Code: " + cancellationResult.code + ", Response: " + cancellationResult.text);
+    statusCell.setValue("Failed (" + cancellationResult.code + ")");
+    try {
+      var errData = JSON.parse(cancellationResult.text);
+      detailsCell.setValue(errData.message || "Unknown error occurred.");
+    } catch(e) {
+      detailsCell.setValue("Response: " + cancellationResult.text);
+    }
   }
 }
-
 /**
  * Clears existing position data from the "Main" sheet.
  */
@@ -244,7 +262,5 @@ function clearPositions() {
     sheet.deleteRows(PositionRowStart, rows);
   }
 }
-
-
 
 
