@@ -1,6 +1,6 @@
 /**
- * Cancels all open orders for the ticker symbol in cell D4.
- * Status: B1 | Details: B2
+ * Safely cancels ONLY the open orders matching the specific ticker symbol in cell D4.
+ * Status written to B1 | Details written to B2
  */
 function cancelOrdersByTicker() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -13,30 +13,58 @@ function cancelOrdersByTicker() {
 
   // 2. Normalize Ticker from D4
   const ticker = sheet.getRange("D4").getValue().toString().toUpperCase().trim();
-  
   if (!ticker) {
     sheet.getRange("B1").setValue("Input Error");
     sheet.getRange("B2").setValue("Enter a ticker in D4.");
     return;
   }
 
-  // 3. Load Credentials
-  const props = PropertiesService.getScriptProperties();
-  const keyId = props.getProperty('ALPACA_KEY'); 
-  const secretKey = props.getProperty('ALPACA_SECRET');
+  // 3. Retrieve all open orders using your existing internal functions
+  // listOrders() is globally available in your project and pulls your active order book
+  var allOrders = listOrders();
+  var openStatuses = ['new', 'partially_filled', 'pending_cancel', 'accepted', 'pending_new', 'accepted_for_bidding'];
+  
+  // Filter for open orders that match our target ticker exactly
+  var targetOrders = allOrders.filter(function(order) {
+    return order.symbol === ticker && openStatuses.indexOf(order.status) !== -1;
+  });
 
-  if (!keyId || !secretKey) {
-    sheet.getRange("B1").setValue("Key Error");
-    sheet.getRange("B2").setValue("Check API Keys in Setup.");
+  if (targetOrders.length === 0) {
+    sheet.getRange("B1").setValue("No Orders");
+    sheet.getRange("B2").setValue("No open orders found for " + ticker + ".");
     return;
   }
 
-  // 4. Determine Endpoint (Paper vs Live)
-  const isPaper = keyId.startsWith('PK');
-  const baseUrl = isPaper ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
-  
-  // Endpoint to delete all orders for a specific symbol
-  const url = baseUrl + "/v2/orders?symbol=" + ticker;
+  sheet.getRange("B2").setValue("Found " + targetOrders.length + " order(s). Cancelling...");
+
+  // 4. Sequentially cancel each targeted order ID using your internal _cancelRequest helper
+  var successCount = 0;
+  var failCount = 0;
+
+  targetOrders.forEach(function(order) {
+    var result = _cancelRequest(order.id); // Uses your clean DELETE helper function
+    if (result.code >= 200 && result.code < 300) {
+      successCount++;
+    } else {
+      failCount++;
+      Logger.log("Failed to cancel order " + order.id + " for " + ticker + ". Code: " + result.code);
+    }
+  });
+
+  // 5. Output Summary Results to Sheet
+  if (failCount === 0) {
+    sheet.getRange("B1").setValue("Success");
+    sheet.getRange("B2").setValue("Cancelled all " + successCount + " open order(s) for " + ticker + ".");
+  } else {
+    sheet.getRange("B1").setValue("Partial Success");
+    sheet.getRange("B2").setValue("Cancelled " + successCount + " order(s). Failed on " + failCount + ".");
+  }
+
+  // Auto-refresh the layout to reflect changes immediately
+  if (typeof updateSheet === "function") {
+    updateSheet();
+  }
+}
 
   const options = {
     "method": "delete",
@@ -64,4 +92,3 @@ function cancelOrdersByTicker() {
     sheet.getRange("B1").setValue("System Error");
     sheet.getRange("B2").setValue(e.message);
   }
-}
