@@ -29,14 +29,24 @@ function onOpen() {
       .addItem('🚫 Cancel Order (c12)', 'cancelOrderFromSheet')
       .addItem('🚫 Cancel all orders for ticker (f4)','cancelOrdersByTicker')
       .addSeparator()
+      .addItem('🚨 Close Position (D4 Ticker)', 'closePositionFromSheet')
+      .addItem('🚨 protect Longs', 'protectRemainingShares')
+      .addItem('🚨 protect Shorts', 'protectShortPositions')
+      protectShortPositions
+           .addSeparator()
       .addItem('retrieve filled orders','updatefilledSheet' )
-      .addItem('📂 Refresh Open Orders Tab', 'updateOpenOrdersSheet') 
+      .addItem('📂 Refresh Open Orders Tab', 'updateOpenOrdersSheet') // Add this line
+      .addSeparator()
+      .addItem('EoD', 'createEODSummary')
       .addSeparator()
       .addItem('🔐 Setup API Keys', 'promptForApiKeys')
       .addItem('🧪 Switch to Paper Trading', 'usePaperTrading')
       .addItem('💰 Switch to Live Trading', 'useLiveTrading')
-      .addToUi();
 
+    .addSeparator()
+    .addItem('📂 List All Watchlists', 'listAllWatchlists')
+    .addItem('📥 Load Watchlist Symbols', 'promptAndUpdateWatchlist')
+    .addToUi();
 
 
 // 2. Create the Dropdown for Buy/Sell in Cell F4
@@ -107,4 +117,5 @@ function useLiveTrading() {
   PropertiesService.getScriptProperties().setProperty('ALPACA_ENDPOINT', "https://api.alpaca.markets/");
   initializeCredentials();
   SpreadsheetApp.getUi().alert("Endpoint set to LIVE.");
+
 }
