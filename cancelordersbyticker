@@ -1,0 +1,67 @@
+/**
+ * Cancels all open orders for the ticker symbol in cell D4.
+ * Status: B1 | Details: B2
+ */
+function cancelOrdersByTicker() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Main");
+  if (!sheet) return;
+
+  // 1. Reset Status
+  sheet.getRange("B1").setValue("Cancelling...");
+  sheet.getRange("B2").clearContent();
+
+  // 2. Normalize Ticker from D4
+  const ticker = sheet.getRange("D4").getValue().toString().toUpperCase().trim();
+  
+  if (!ticker) {
+    sheet.getRange("B1").setValue("Input Error");
+    sheet.getRange("B2").setValue("Enter a ticker in D4.");
+    return;
+  }
+
+  // 3. Load Credentials
+  const props = PropertiesService.getScriptProperties();
+  const keyId = props.getProperty('ALPACA_KEY'); 
+  const secretKey = props.getProperty('ALPACA_SECRET');
+
+  if (!keyId || !secretKey) {
+    sheet.getRange("B1").setValue("Key Error");
+    sheet.getRange("B2").setValue("Check API Keys in Setup.");
+    return;
+  }
+
+  // 4. Determine Endpoint (Paper vs Live)
+  const isPaper = keyId.startsWith('PK');
+  const baseUrl = isPaper ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
+  
+  // Endpoint to delete all orders for a specific symbol
+  const url = baseUrl + "/v2/orders?symbol=" + ticker;
+
+  const options = {
+    "method": "delete",
+    "headers": {
+      "APCA-API-KEY-ID": keyId,
+      "APCA-API-SECRET-KEY": secretKey
+    },
+    "muteHttpExceptions": true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const code = response.getResponseCode();
+    
+    // Alpaca returns a list of objects for the orders it tried to cancel
+    if (code === 200 || code === 207) {
+      sheet.getRange("B1").setValue("Success");
+      sheet.getRange("B2").setValue("All open orders for " + ticker + " have been cancelled.");
+    } else {
+      const data = JSON.parse(response.getContentText());
+      sheet.getRange("B1").setValue("Failed (" + code + ")");
+      sheet.getRange("B2").setValue(data.message || "Could not cancel orders.");
+    }
+  } catch (e) {
+    sheet.getRange("B1").setValue("System Error");
+    sheet.getRange("B2").setValue(e.message);
+  }
+}
