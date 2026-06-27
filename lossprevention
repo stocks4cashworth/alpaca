@@ -1,0 +1,169 @@
+/**
+ * Reviews all portfolio positions starting at row 14.
+ * Strictly verifies that Column U equals "Long" and Owned Qty > 0.
+ * If pending sell orders (Column K) are less than owned shares (Column B),
+ * it places a sell stop order for the remaining shares at 1% below the current price (Column G),
+ * provided that the stop price remains above the cost basis per share (Column F).
+ */
+function protectRemainingShares() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Main");
+  if (!sheet) {
+    Logger.log("Error: 'Main' sheet not found.");
+    return;
+  }
+  
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 14) {
+    Logger.log("No position data found below row 14.");
+    return;
+  }
+  
+  // Read data from row 14 down to the last row, expanding to column U (21 columns)
+  var range = sheet.getRange(14, 1, lastRow - 13, 21);
+  var values = range.getValues();
+  
+  values.forEach(function(row, index) {
+    var currentRowNum = 14 + index;
+    var ticker = row[0] ? row[0].toString().trim().toUpperCase() : "";
+    
+    // Skip empty rows
+    if (!ticker) return;
+    
+    var ownedQty = parseFloat(row[1]) || 0;             // Column B (Index 1)
+    var costBasisPerShare = parseFloat(row[5]) || 0;    // Column F (Index 5)
+    var currentPrice = parseFloat(row[6]) || 0;         // Column G (Index 6)
+    var pendingSellQty = parseFloat(row[10]) || 0;       // Column K (Index 10)
+    var positionType = row[20] ? row[20].toString().trim() : ""; // Column U (Index 20)
+    
+    // CRITICAL CHECK: Strict column U comparison + validation that quantity is positive
+    if (positionType.toLowerCase() !== "long" || ownedQty <= 0) {
+      Logger.log("Row " + currentRowNum + " [" + ticker + "]: Skipped. Column U is '" + positionType + "' (Expected: 'Long') or quantity is zero/negative.");
+      return;
+    }
+    
+    // Check if there are unprotected shares
+    if (pendingSellQty < ownedQty) {
+      var remainingQty = ownedQty - pendingSellQty;
+      var targetStopPrice = currentPrice * 0.99; // 1% less than current price
+      
+      // Condition: Stop price must be strictly above the cost basis per share
+      if (targetStopPrice > costBasisPerShare) {
+        Logger.log("Row " + currentRowNum + " [" + ticker + "]: Preparing Sell Stop order for " + remainingQty + " shares at $" + targetStopPrice.toFixed(2));
+        
+        var payload = {
+          "symbol": ticker,
+          "qty": remainingQty.toString(),
+          "side": "sell",
+          "type": "stop",
+          "time_in_force": "gtc",
+          "stop_price": targetStopPrice.toFixed(2),
+          "order_class": "simple"
+        };
+        
+        // Use the globally accessible _request helper from main.gs to send the post request
+        var response = _request("v2/orders", {
+          method: "POST",
+          payload: JSON.stringify(payload)
+        });
+        
+        if (response && response.id) {
+          Logger.log("Successfully placed stop order for " + ticker + ". Order ID: " + response.id);
+        } else if (response && response.message) {
+          Logger.log("Alpaca API rejected order for " + ticker + ": " + response.message);
+        }
+      } else {
+        Logger.log("Row " + currentRowNum + " [" + ticker + "]: Skipped. Target stop price ($" + targetStopPrice.toFixed(2) + ") is not above cost basis ($" + costBasisPerShare.toFixed(2) + ").");
+      }
+    }
+  });
+  
+  // Refresh the main sheet layout to show updated order counts
+  if (typeof updateSheet === "function") {
+    updateSheet();
+  }
+}
+
+/**
+ * Reviews all portfolio positions starting at row 14 to manage short risk.
+ * Strictly verifies that Column U equals "Short" and Owned Qty < 0.
+ * If pending buy orders (Column I) are less than the shorted shares (Column B),
+ * it places a buy stop order for the remaining shares at 2% above the cost basis per share (Column F)
+ * to limit the total loss to 2%.
+ */
+function protectShortPositions() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Main");
+  if (!sheet) {
+    Logger.log("Error: 'Main' sheet not found.");
+    return;
+  }
+  
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 14) {
+    Logger.log("No position data found below row 14.");
+    return;
+  }
+  
+  // Read data from row 14 down to the last row, expanding to column U (21 columns)
+  var range = sheet.getRange(14, 1, lastRow - 13, 21);
+  var values = range.getValues();
+  
+  values.forEach(function(row, index) {
+    var currentRowNum = 14 + index;
+    var ticker = row[0] ? row[0].toString().trim().toUpperCase() : "";
+    
+    // Skip empty rows
+    if (!ticker) return;
+    
+    var ownedQty = parseFloat(row[1]) || 0;             // Column B (Index 1) - Negative for Shorts
+    var costBasisPerShare = parseFloat(row[5]) || 0;    // Column F (Index 5)
+    var pendingBuyQty = parseFloat(row[8]) || 0;        // Column I (Index 8) - Pending Buy Qty to cover shorts
+    var positionType = row[20] ? row[20].toString().trim() : ""; // Column U (Index 20)
+    
+    // CRITICAL CHECK: Verify Column U is "Short" and quantity is negative
+    if (positionType.toLowerCase() !== "short" || ownedQty >= 0) {
+      return; // Skip long positions or options matching other rules
+    }
+    
+    // Convert negative owned quantity to absolute value for calculation
+    var absoluteShortQty = Math.abs(ownedQty);
+    
+    // Check if there are unprotected short shares
+    if (pendingBuyQty < absoluteShortQty) {
+      var remainingQty = absoluteShortQty - pendingBuyQty;
+      
+      // Stop loss for shorts: Buy back shares at 2% above the cost basis per share
+      var targetStopPrice = costBasisPerShare * 1.02; 
+      
+      Logger.log("Row " + currentRowNum + " [" + ticker + "]: Preparing Buy Stop order to cover " + remainingQty + " short shares at $" + targetStopPrice.toFixed(2));
+      
+      var payload = {
+        "symbol": ticker,
+        "qty": remainingQty.toString(),
+        "side": "buy", // Buy to cover the short position
+        "type": "stop",
+        "time_in_force": "gtc",
+        "stop_price": targetStopPrice.toFixed(2),
+        "order_class": "simple"
+      };
+      
+      // Use the globally accessible internal request handler to send the post request to Alpaca
+      var response = _request("v2/orders", {
+        method: "POST",
+        payload: JSON.stringify(payload)
+      });
+      
+      if (response && response.id) {
+        Logger.log("Successfully placed short stop-loss order for " + ticker + ". Order ID: " + response.id);
+      } else if (response && response.message) {
+        Logger.log("Alpaca API rejected short protection order for " + ticker + ": " + response.message);
+      }
+    }
+  });
+  
+  // Refresh the main sheet layout to display updated order counts immediately
+  if (typeof updateSheet === "function") {
+    updateSheet();
+  }
+}
